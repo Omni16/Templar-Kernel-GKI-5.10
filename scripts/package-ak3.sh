@@ -225,7 +225,7 @@ fi
 #   2) KERNEL_NAME     — ten dung cho UI + thu muc backup
 #   3) 2 dong echo     — log cua post-boot script da cai vao may
 #   4) banner          — dong Version/Variant (dang cu con ghi "BakaSU")
-sed -i "s|^kernel.string=.*|kernel.string=${KNAME} Kernel (${LABEL}) ${VERSION}-${BRANCH} by WiL (@Steambot12) kang by tungtx0507|" \
+sed -i "s|^kernel.string=.*|kernel.string=${KNAME} Kernel (${LABEL}) ${VERSION}-${BRANCH} by Zyomi16|" \
     "$STAGE/anykernel.sh"
 sed -i "s|^KERNEL_NAME=.*|KERNEL_NAME=\"${KNAME}\"|" \
     "$STAGE/anykernel.sh"

@@ -1,11 +1,11 @@
 ### AnyKernel3 Ramdisk Mod Script
 ## osm0sis @ xda-developers
-## Enhanced by WiL for deep kernel cleanup
+## Enhanced by Zyomi16 for deep kernel cleanup
 
 ### AnyKernel setup
 # Global properties
 properties() { cat <<'PROP'
-kernel.string=Zyomi16 Kernel by WiL (@Steambot12) kang by tungtx0507
+kernel.string=Zyomi16 Kernel by Zyomi16
 do.devicecheck=0
 do.modules=0
 do.systemless=1
@@ -21,7 +21,7 @@ PROP
 
 ### Kernel identification
 KERNEL_NAME="Zyomi16"
-KERNEL_AUTHOR="Tùng TX"
+KERNEL_AUTHOR="Zyomi16"
 
 ### AnyKernel install
 ## Boot shell variables
@@ -99,6 +99,11 @@ deep_kernel_cleanup() {
         rm -f /data/bootconfig 2>/dev/null
 
         # 12. Old kernel init scripts
+        rm -f /data/adb/service.d/zyomi16_kernel_init.sh 2>/dev/null
+        rm -f /data/adb/service.d/zyomi16_power_daily.sh 2>/dev/null
+        rm -f /data/local/tmp/zyomi16_init.log 2>/dev/null
+        rm -f /data/local/tmp/zyomi16_power.log 2>/dev/null
+        # Ten cu (ban AK3 cu) - don de nang cap sach
         rm -f /data/adb/service.d/templar_kernel_init.sh 2>/dev/null
         rm -f /data/adb/service.d/templar_power_daily.sh 2>/dev/null
         rm -f /data/local/tmp/templar_init.log 2>/dev/null
@@ -320,9 +325,9 @@ post_install_check() {
 set_postflash_configs() {
     mkdir -p /data/adb/service.d 2>/dev/null
 
-    cat > /data/adb/service.d/templar_kernel_init.sh << 'EOF'
+    cat > /data/adb/service.d/zyomi16_kernel_init.sh << 'EOF'
 #!/system/bin/sh
-LOGFILE="/data/local/tx.log"
+LOGFILE="/data/local/zyomi16.log"
 
 # Wait for boot complete
 while [ "$(getprop sys.boot_completed)" != "1" ]; do
@@ -377,7 +382,7 @@ sleep 15
 
     # Self-destruct after successful run
     sleep 5
-    rm -f /data/adb/service.d/templar_kernel_init.sh
+    rm -f /data/adb/service.d/zyomi16_kernel_init.sh
 } > "$LOGFILE" 2>&1
 
 # Set readable permissions
@@ -385,10 +390,10 @@ chmod 644 "$LOGFILE" 2>/dev/null
 EOF
 
     # Magisk/KernelSU skip service.d scripts without the exec bit (X_OK)
-    chmod 755 /data/adb/service.d/templar_kernel_init.sh 2>/dev/null
+    chmod 755 /data/adb/service.d/zyomi16_kernel_init.sh 2>/dev/null
 
     # ---- Persistent power efficiency script (survives reboots) ----
-    cat > /data/adb/service.d/templar_power_daily.sh << 'PWREOF'
+    cat > /data/adb/service.d/zyomi16_power_daily.sh << 'PWREOF'
 #!/system/bin/sh
 # Zyomi16 Kernel — Daily Power Efficiency Tuning
 # Runs every boot (Magisk/KernelSU service.d). Do NOT delete — these are
@@ -511,11 +516,11 @@ w() { [ -f "$1" ] && echo "$2" > "$1" 2>/dev/null; }
         # Sorted by prevent_suspend_time: that is the one that blocks deep sleep.
         awk 'NR>1 && ($10+0 > 0 || $7+0 > 0) { printf "%-32s %8s %12s %12s\n", $1, $2, $7, $10 }' "$WS" \
             | sort -k4 -rn | head -15
-    ) >> /data/local/tmp/templar_power.log 2>&1 &
-} >> /data/local/tmp/templar_power.log 2>&1
+    ) >> /data/local/tmp/zyomi16_power.log 2>&1 &
+} >> /data/local/tmp/zyomi16_power.log 2>&1
 PWREOF
 
-    chmod 755 /data/adb/service.d/templar_power_daily.sh 2>/dev/null
+    chmod 755 /data/adb/service.d/zyomi16_power_daily.sh 2>/dev/null
     ui_print "  ✓ Post-boot script created"
     ui_print "  ✓ Power efficiency script created"
 }
