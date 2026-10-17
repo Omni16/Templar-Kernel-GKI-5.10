@@ -1,3 +1,18 @@
+# Zyomi16 Kernel (GKI 5.10)
+
+Kernel cho thiết bị GKI 5.10 (Snapdragon) — **fork của
+[Steambot12/Templar-Kernel-GKI-5.10](https://github.com/Steambot12/Templar-Kernel-GKI-5.10)**,
+nhánh làm việc `Templar-LinuxStable`.
+
+CI: `.github/workflows/Zyomi-kernel.yml` — BakaSU + SUSFS + Multi Manager + Droidspaces,
+LTO full (clang-r416183b). Quy trình & nguyên tắc ở `AGENTS.md`; lịch sử build ở
+`docs/build-history.md`.
+
+> Repo tái tạo ngày 17-10-2026 từ Steambot12 tip `dd912355af` — xem mục "Bối cảnh"
+> trong `AGENTS.md` để biết những gì KHÔNG mang theo từ repo cũ.
+
+---
+
 # How do I submit patches to Android Common Kernels
 
 1. BEST: Make all of your changes to upstream Linux. If appropriate, backport to the stable releases.

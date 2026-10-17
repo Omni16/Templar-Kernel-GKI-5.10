@@ -1,0 +1,224 @@
+name: Build Kernel
+run-name: "Build ${{ inputs.kernel_name || 'Zyomi16' }} | ${{ inputs.bakasu && 'BakaSU' || inputs.agnesu && 'AgnesSU' || inputs.kittisu && 'KittiSU' || inputs.sukisu_ultra && 'SukiSU-Ultra' || inputs.ksu_next && 'KernelSU-Next' || 'Vanilla' }}${{ inputs.enable_susfs && ' +SUSFS' || '' }}${{ inputs.droidspaces && ' +Droidspace' || '' }}"
+on:
+  workflow_dispatch:
+    inputs:
+      kernel_name:
+        description: "Ten kernel (LOCALVERSION, ten zip). Chi chu/so/._- , toi da 32 ky tu."
+        required: false
+        type: string
+        default: Zyomi16
+      bakasu:
+        description: "BakaSU \u2014 root solution chinh."
+        required: false
+        type: boolean
+        default: true
+      bakasu_branch:
+        description: 'Nhanh/tag BakaSU (default: v4.2.0-rc3, co SUSFS; da test xanh voi SUSFS android12 + android13). v4.1.0 khong co SUSFS (neu bat SUSFS se bi check sau clone va FAIL).'
+        required: false
+        type: string
+        default: v4.2.0-rc3
+      sukisu_ultra:
+        description: "SukiSU-Ultra. Tick cung BakaSU = chi build BakaSU, tu bat Multi Manager."
+        required: false
+        type: boolean
+        default: true
+      sukisu_branch:
+        description: 'Nhanh/tag SukiSU-Ultra (default: main). CHI nhanh "builtin" co SUSFS — neu bat SUSFS thi dien "builtin" vao o nay.'
+        required: false
+        type: string
+        default: main
+      ksu_next:
+        description: "KernelSU Next (khong co MM; stock khong co SUSFS). Muon SUSFS: chon ksu_next_repo fork pershoot + nhanh dev-susfs/next-susfs. Tick cung root khac = chi build root uu tien cao hon + tu bat MM."
+        required: false
+        type: boolean
+        default: false
+      ksu_next_branch:
+        description: 'Nhanh/tag KernelSU Next (default: dev). Stock dev KHONG co SUSFS (da verify: kernel/Kconfig khong co config KSU_SUSFS). Muon SUSFS: doi ksu_next_repo sang fork pershoot + chon nhanh dev-susfs (WildKernels dung) hoac next-susfs (da verify ca 2 deu co config KSU_SUSFS).'
+        required: false
+        type: string
+        default: dev
+      ksu_next_repo:
+        description: 'Repo KernelSU Next (default: stock KernelSU-Next/KernelSU-Next). Muon SUSFS: dien https://github.com/pershoot/KernelSU-Next + ksu_next_branch=dev-susfs.'
+        required: false
+        type: string
+        default: https://github.com/KernelSU-Next/KernelSU-Next
+      agnesu:
+        description: "AgnesSU (fork ReSukiSU; co SUSFS + Multi Manager)."
+        required: false
+        type: boolean
+        default: false
+      agnesu_branch:
+        description: 'Nhanh/tag AgnesSU (default: main).'
+        required: false
+        type: string
+        default: main
+      kittisu:
+        description: "KittiSU (KernelSU-based; co SUSFS + Multi Manager)."
+        required: false
+        type: boolean
+        default: false
+      kittisu_branch:
+        description: 'Nhanh/tag KittiSU (default: main).'
+        required: false
+        type: string
+        default: main
+      multi_manager:
+        description: "Multi Manager (CONFIG_KSU_MULTI_MANAGER_SUPPORT). Chi hieu luc voi BakaSU/AgnesSU/KittiSU; tick nhieu root -> tu bat."
+        required: false
+        type: boolean
+        default: true
+      enable_susfs:
+        description: "SUSFS. Chi hoat dong voi root co config KSU_SUSFS (check that sau khi clone): BakaSU (tu v4.2.0-rc3), AgnesSU, KittiSU, SukiSU-Ultra nhan builtin, KSU-Next fork pershoot (nhanh dev-susfs/next-susfs). Root khong ho tro + van tick -> BUILD FAIL."
+        required: false
+        type: boolean
+        default: true
+      susfs_branch:
+        description: "Nhanh susfs4ksu (default: gki-android12-5.10 — da test xanh voi tat ca root co SUSFS; gki-android13-5.10 cung da test xanh voi BakaSU)."
+        required: false
+        type: string
+        default: gki-android12-5.10
+      droidspaces:
+        description: 'Droidspaces (kABI patch, giu module vendor).'
+        required: false
+        type: boolean
+        default: true
+env:
+  KERNEL_REPO: Omni16/Templar-Kernel-GKI-5.10
+  AK3_VARIANT: gki
+  BAKASU_REPO: https://github.com/Baka-SU/BakaSU
+  SUKISU_REPO: https://github.com/SukiSU-Ultra/SukiSU-Ultra
+  DROIDSPACES_REPO: https://raw.githubusercontent.com/ravindu644/Droidspaces-OSS/main/Documentation/resources/kernel-patches/GKI/below-kernel-6.12
+  DROIDSPACES_DOC_COMMIT: 746a9e1e1fc738e31256244c91d76bbe54b91fd7
+  SUSFS_REPO: https://gitlab.com/simonpunk/susfs4ksu.git
+  DEFCONFIG: gki_defconfig
+  ARCH: arm64
+  SUBARCH: arm64
+  TZ: Asia/Ho_Chi_Minh
+jobs:
+  build:
+    name: Build Kernel (${{ github.ref_name }})
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    steps:
+    - name: Validate inputs
+      id: resolve
+      env:
+        IN_KNAME: ${{ inputs.kernel_name }}
+        IN_BAKASU: ${{ inputs.bakasu }}
+        IN_SUKISU: ${{ inputs.sukisu_ultra }}
+        IN_SUKISU_BRANCH: ${{ inputs.sukisu_branch }}
+        IN_KSU_NEXT: ${{ inputs.ksu_next }}
+        IN_AGNESU: ${{ inputs.agnesu }}
+        IN_KITTISU: ${{ inputs.kittisu }}
+        IN_MM: ${{ inputs.multi_manager }}
+        IN_SUSFS: ${{ inputs.enable_susfs }}
+        IN_DROID: ${{ inputs.droidspaces }}
+      run: "set -euo pipefail\nfail() { echo \"::error::$*\"; echo \"\"; echo \"\u274C $*\" >> \"$GITHUB_STEP_SUMMARY\"; exit 1; }\nWARN=()\nwarn() { WARN+=(\"$1\"); echo \"[!] $1\"; }\n\n# ---- (2) ten kernel: [A-Za-z0-9._-], <=32 ky tu, khong khoang trang ----\nKNAME=\"${IN_KNAME:-}\"\nif [ -z \"$KNAME\" ]; then\n  fail \"kernel_name rong \u2014 nhap ten kernel (vi du: Zyomi16), toi da 32 ky tu.\"\nfi\nif [ \"${#KNAME}\" -gt 32 ]; then\n  fail \"kernel_name dai ${#KNAME} ky tu \u2014 toi da la 32 (ky tu thua: '${KNAME:32}').\"\nfi\nif ! printf '%s' \"$KNAME\" | grep -Eq '^[A-Za-z0-9._-]+$'; then\n  BAD=$(printf '%s' \"$KNAME\" | grep -oE '[^A-Za-z0-9._-]' | sort -u | tr -d '\\n')\n  fail \"kernel_name chua ky tu khong hop le: '${BAD}'. Chi duoc phep [A-Za-z0-9._-] (khong khoang trang, khong ky tu dac biet).\"\nfi\n\n# ---- (3)(4)(5) luat to hop root -------------------------------------\nB=\"$IN_BAKASU\"; S=\"$IN_SUKISU\"; N=\"$IN_KSU_NEXT\"; A=\"$IN_AGNESU\"; K=\"$IN_KITTISU\"; M=\"$IN_MM\"\nNCOUNT=0\n[ \"$B\" = \"true\" ] && NCOUNT=$((NCOUNT+1))\n[ \"$S\" = \"true\" ] && NCOUNT=$((NCOUNT+1))\n[ \"$N\" = \"true\" ] && NCOUNT=$((NCOUNT+1))\n[ \"$A\" = \"true\" ] && NCOUNT=$((NCOUNT+1))\n[ \"$K\" = \"true\" ] && NCOUNT=$((NCOUNT+1))\nif [ \"$NCOUNT\" -gt 1 ]; then\n  if [ \"$B\" = \"true\" ]; then ROOT=\"BakaSU\"\n  elif [ \"$A\" = \"true\" ]; then ROOT=\"AgnesSU\"\n  elif [ \"$K\" = \"true\" ]; then ROOT=\"KittiSU\"\n  elif [ \"$S\" = \"true\" ]; then ROOT=\"SukiSU-Ultra\"\n  else ROOT=\"KernelSU-Next\"\n  fi\n  MM=\"true\"     # MM bat tu dong khi tick nhieu root\n  warn \"Tick $NCOUNT root solution: build $ROOT (uu tien cao nhat) + Multi Manager BAT TU DONG. Cac driver KernelSU loai tu nhau.\"\n  [ \"$M\" = \"false\" ] && warn \"multi_manager dang false nhung bi BAT TU DO vi tick nhieu root.\"\nelif [ \"$B\" = \"true\" ]; then\n  ROOT=\"BakaSU\"; MM=\"$M\"\nelif [ \"$A\" = \"true\" ]; then\n  ROOT=\"AgnesSU\"; MM=\"$M\"\nelif [ \"$K\" = \"true\" ]; then\n  ROOT=\"KittiSU\"; MM=\"$M\"\nelif [ \"$S\" = \"true\" ]; then\n  ROOT=\"SukiSU-Ultra\"; MM=\"false\"\n  if [ \"$M\" = \"true\" ]; then\n    warn \"multi_manager BI BO QUA: SukiSU-Ultra khong co CONFIG_KSU_MULTI_MANAGER_SUPPORT.\"\n  fi\nelif [ \"$N\" = \"true\" ]; then\n  ROOT=\"KernelSU-Next\"; MM=\"false\"\n  if [ \"$M\" = \"true\" ]; then\n    warn \"multi_manager BI BO QUA: KernelSU-Next khong co CONFIG_KSU_MULTI_MANAGER_SUPPORT.\"\n  fi\nelse\n  ROOT=\"None\"; MM=\"false\"\n  if [ \"$M\" = \"true\" ]; then\n    warn \"multi_manager BI BO QUA: khong tick root nao.\"\n  fi\nfi\n\n# ---- (6) SUSFS: chi root co CONFIG_KSU_SUSFS ho tro (da xac minh, khong suy doan) ----\nSUSFS=\"$IN_SUSFS\"\nif [ \"$ROOT\" = \"None\" ] && [ \"$SUSFS\" = \"true\" ]; then\n  fail \"enable_susfs=true nhung khong tick root nao \u2014 SUSFS can 1 root solution. Tick BakaSU (tu v4.2.0-rc3)/AgnesSU/KittiSU/SukiSU-Ultra nhan builtin (co config KSU_SUSFS), hoac dat enable_susfs=false.\"\nfi\n\nif [ \"$SUSFS\" = \"true\" ] && [ \"$ROOT\" = \"SukiSU-Ultra\" ]; then\n  if [ \"$IN_SUKISU_BRANCH\" = \"builtin\" ]; then\n    echo \"[i] SukiSU-Ultra builtin: driver co config KSU_SUSFS (manual hook mode; kernel tree nay da co ksu_handle_* calls trong #ifdef CONFIG_KSU_SUSFS).\"\n  else\n    fail \"SukiSU-Ultra + SUSFS chi dung duoc voi nhanh builtin (chon -f sukisu_branch=builtin). Cac nhanh main/dev/susfs_new KHONG co config KSU_SUSFS trong kernel/Kconfig (da xac minh bang grep that: main=0, dev=0, susfs_new=0; susfs_new chi sua userspace/ksud). Neu van bat SUSFS voi nhanh nay thi CONFIG_KSU_SUSFS se bi Kconfig bo qua -> zip ghi +SUSFS ma khong co SUSFS. Cach dung: -f sukisu_branch=builtin, hoac tick BakaSU/AgnesSU/KittiSU, hoac dat enable_susfs=false.\"\n  fi\nfi\n\nif [ \"$SUSFS\" = \"false\" ] && [ \"$ROOT\" = \"SukiSU-Ultra\" ] && [ \"$IN_SUKISU_BRANCH\" = \"builtin\" ]; then\n  fail \"SukiSU-Ultra builtin khong dung kprobes - toan bo call site ksu_handle_* trong kernel tree nay nam duoi #ifdef CONFIG_KSU_SUSFS. Tat SUSFS = driver van build nhung root KHONG hoat dong (khong goi). Neu muon builtin thi bat SUSFS; neu khong thi dung nhanh main (kprobes).\"\nfi\n\n# ---- (7) canh bao bo 2\
+        \ ----------------------------------------------\nif [ \"$SUSFS\" = \"true\" ] && [ \"$IN_DROID\" = \"true\" ]; then\n  warn \"SUSFS + Droidspaces: upstream Droidspaces ghi 'SuSFS is not supported'. Neu dung ca 2, PHAI tat 'HIDE SUS MOUNTS FOR ALL PROCESSES' trong cai dat SUSFS4KSU, khong se boot container that bai.\"\nfi\n\n# ---- nhan hien thi ----------------------------------------------------\nif [ \"$ROOT\" = \"None\" ]; then\n  LABEL=\"Vanilla\"\nelse\n  LABEL=\"$ROOT\"\n  [ \"$SUSFS\" = \"true\" ] && LABEL=\"${LABEL}+SUSFS\"\nfi\n[ \"$MM\" = \"true\" ]      && LABEL=\"${LABEL}+MultiMgr\"\n[ \"$IN_DROID\" = \"true\" ] && LABEL=\"${LABEL}+Droidspace\"\n\n{\n  echo \"kernel_name=$KNAME\"\n  echo \"root=$ROOT\"\n  echo \"multi_manager=$MM\"\n  echo \"susfs=$SUSFS\"\n  echo \"droidspaces=$IN_DROID\"\n  echo \"root_label=$LABEL\"\n  echo \"warnings<<__EOF__\"\n  if [ ${#WARN[@]} -gt 0 ]; then printf '%s\\n' \"${WARN[@]}\"; fi\n  echo \"__EOF__\"\n} >> \"$GITHUB_OUTPUT\"\n\n# ----\
+        \ job summary --------------------------------------------------------\n{\n  echo \"### \u2705 Input h\u1EE3p l\u1EC7 \u2014 t\u1ED5 h\u1EE3p \u0111\xE3 gi\u1EA3i quy\u1EBFt\"\n  echo \"\"\n  echo \"| Tr\u01B0\u1EDDng | Gi\xE1 tr\u1ECB |\"\n  echo \"| :--- | :--- |\"\n  echo \"| kernel_name | \\`$KNAME\\` (${#KNAME} k\xFD t\u1EF1) |\"\n  echo \"| root | \\`$ROOT\\` |\"\n  echo \"| multi_manager | \\`$MM\\` $([ \"$MM\" = \"true\" ] || echo '(ch\u1EC9 BakaSU/AgnesSU/KittiSU c\xF3)') |\"\n  echo \"| SUSFS | \\`$SUSFS\\` |\"\n  echo \"| Droidspaces | \\`$IN_DROID\\` |\"\n  echo \"| Nh\xE3n zip | \\`$LABEL\\` |\"\n  echo \"\"\n  if [ ${#WARN[@]} -gt 0 ]; then\n    echo \"#### \u26A0\uFE0F C\u1EA3nh b\xE1o\"\n    for w in \"${WARN[@]}\"; do echo \"- $w\"; done\n    echo \"\"\n  fi\n  echo \"#### Manager \u0111\xE3 x\xE1c minh cho Multi Manager\"\n  echo \"- \u2705 **BakaSU** (lu\xF4n c\xF3 m\u1EB7t)\"\n  echo \"- \u2705 **KernelSU Official** (\\`tiann/KernelSU\\`)\"\n  echo \"- \u2705 **KOWSU** (\\`KOWX712/KernelSU\\\
+        `)\"\n  echo \"- \u2B1C **SukiSU-Ultra** \u2014 *ch\u01B0a x\xE1c minh* (kh\xF4ng c\xF3 trong danh s\xE1ch key signature)\"\n  echo \"- \u2B1C **KernelSU Next** \u2014 *ch\u01B0a x\xE1c minh* (README kh\xF4ng nh\u1EAFc)\"\n  echo \"\"\n  echo \"_Ngu\u1ED3n: \\`kernel/manager/manager_sign.h\\`, \\`kernel/Kbuild:101\\` (\\`-- Supported Managers:\\`), \\`docs/README.md:23\\` @ \\`Baka-SU/BakaSU\\` commit \\`5b76b884c75f729a220bb317aa4a4fc78f0e0e9c\\`._\"\n} >> \"$GITHUB_STEP_SUMMARY\"\n\necho \"[\u2713] ROOT=$ROOT MM=$MM SUSFS=$SUSFS DROID=$IN_DROID NAME=$KNAME LABEL=$LABEL\"\n"
+    - name: Checkout vendored AnyKernel3
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 1
+        filter: blob:none
+        sparse-checkout: '/anykernel3/
+
+          /ak3/
+
+          /config/
+
+          /scripts/package-ak3.sh
+
+          '
+        sparse-checkout-cone-mode: false
+    - name: Maximize build disk space
+      uses: jlumbroso/free-disk-space@main
+      with:
+        tool-cache: true
+        android: false
+        dotnet: true
+        haskell: true
+        large-packages: true
+        docker-images: true
+        swap-storage: false
+    - name: Configure 10GB Swap Space
+      run: "echo \"[*] Setting up 10GB swap to prevent OOM...\"\nsudo fallocate -l 10G /swapfile_10g || sudo dd if=/dev/zero of=/swapfile_10g bs=1M count=10240\nsudo chmod 600 /swapfile_10g\nsudo mkswap /swapfile_10g\nsudo swapon /swapfile_10g\necho \"[\u2713] Memory & Swap status:\"\nfree -h\n"
+    - name: Install build dependencies
+      run: "sudo apt-get update -qq\nsudo apt-get install -y --no-install-recommends \\\n  bc bison build-essential ca-certificates cpio curl \\\n  flex git git-lfs kmod libelf-dev libssl-dev lld llvm \\\n  make python3 zip unzip wget lz4 jq patch \\\n  gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu\n"
+    - name: Download Clang Toolchain (AOSP r416183b)
+      run: "echo \"[*] Setting up Clang toolchain...\"\nmkdir -p \"$GITHUB_WORKSPACE/toolchain\"\n\ntc_ok=\"\"\n# 1) AOSP tarball — chi tai dung thu muc clang-r416183b (khong tai .git history)\nfor _try in 1 2 3; do\n  wget -q --tries=3 --timeout=180 -O \"$GITHUB_WORKSPACE/clang.tar.gz\" \\\n    \"https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/tags/android-12.1.0_r26/clang-r416183b.tar.gz\" && { tc_ok=1; break; }\n  echo \"[!] Tarball clang loi (lan $_try) - thu lai sau 10s...\" >&2\n  sleep 10\ndone\nif [ -n \"$tc_ok\" ]; then\n  mkdir -p \"$GITHUB_WORKSPACE/toolchain/clang\"\n  if tar -xzf \"$GITHUB_WORKSPACE/clang.tar.gz\" -C \"$GITHUB_WORKSPACE/toolchain/clang\" \\\n     && [ -x \"$GITHUB_WORKSPACE/toolchain/clang/bin/clang\" ]; then\n    echo \"[i] Nguon toolchain: AOSP tarball android-12.1.0_r26/clang-r416183b\"\n  else\n    echo \"[!] Tarball extract loi -> fallback LineageOS clone\" >&2\n    tc_ok=\"\"\n    rm -rf \"$GITHUB_WORKSPACE/toolchain/clang\"\n  fi\n  rm -f \"$GITHUB_WORKSPACE/clang.tar.gz\"\nfi\n
+# 2) Fallback: LineageOS mirror c\u1EE7a AOSP clang-r416183b (kh\u1EDBp ch\xEDnh x\xE1c v\u1EDBi android12-5.10 GKI)\nif [ -z \"$tc_ok\" ]; then\ntc_ok=\"\"\nfor _try in 1 2 3; do\n  git clone --depth=1 -b lineage-20.0 \\\n    https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b \\\n    \"$GITHUB_WORKSPACE/toolchain/clang\" && { tc_ok=1; break; }\n  echo \"[!] Toolchain loi (lan $_try) - thu lai sau 10s...\" >&2\n  rm -rf \"$GITHUB_WORKSPACE/toolchain/clang\"\n  [ \"$_try\" = 3 ] || sleep 10\ndone\n[ -n \"$tc_ok\" ] || {\n    echo \"[!] Mirror l\u1ED7i, fallback sang ZyCromerZ Clang...\"\n    rm -rf \"$GITHUB_WORKSPACE/toolchain/clang\"\n    mkdir -p \"$GITHUB_WORKSPACE/toolchain/clang\"\n    ZYCROMERZ_URL=$(curl -sL https://api.github.com/repos/ZyCromerZ/Clang/releases/latest \\\n      | jq -r '.assets[] | select(.name | endswith(\".tar.gz\")) | .browser_download_url' | head -1)\n    wget -q --tries=3 --timeout=120 \"$ZYCROMERZ_URL\" -O \"$GITHUB_WORKSPACE/toolchain/clang.tar.gz\"\n    tar -xf \"$GITHUB_WORKSPACE/toolchain/clang.tar.gz\" -C \"$GITHUB_WORKSPACE/toolchain/clang\"\n    rm -f \"$GITHUB_WORKSPACE/toolchain/clang.tar.gz\"\n  }\nfi\n\nexport PATH=\"\
+        $GITHUB_WORKSPACE/toolchain/clang/bin:$PATH\"\nclang --version | head -n 1\n"
+    - name: Clone Kernel Source
+      env:
+        V_NAME: ${{ steps.resolve.outputs.kernel_name }}
+        V_ROOT: ${{ steps.resolve.outputs.root }}
+        V_MM: ${{ steps.resolve.outputs.multi_manager }}
+        V_SUSFS: ${{ steps.resolve.outputs.susfs }}
+        V_DROID: ${{ steps.resolve.outputs.droidspaces }}
+        V_LABEL: ${{ steps.resolve.outputs.root_label }}
+      run: "echo \"[*] Cloning ${{ env.KERNEL_REPO }} (branch: ${{ github.ref_name }})...\"\nset -euo pipefail\nfor _try in 1 2 3; do\n  git clone --depth=1 --branch \"${{ github.ref_name }}\" \\\n    \"https://github.com/${{ env.KERNEL_REPO }}.git\" \\\n    \"$GITHUB_WORKSPACE/kernel\" && break\n  echo \"[!] Clone kernel loi (lan $_try) - thu lai sau 10s...\" >&2\n  rm -rf \"$GITHUB_WORKSPACE/kernel\"\n  [ \"$_try\" = 3 ] && exit 1\n  sleep 10\ndone\n\ncd \"$GITHUB_WORKSPACE/kernel\"\nKERNEL_VER=$(make kernelversion 2>/dev/null || echo \"5.10\")\nCOMMIT_SHORT=$(git rev-parse --short HEAD)\n\n# Ket qua da duoc job validate-inputs tinh ro (luat to hop) \u2014 o day chi lay\n{\n  echo \"KERNEL_VERSION=$KERNEL_VER\"\n  echo \"COMMIT_HASH=$COMMIT_SHORT\"\n  echo \"ROOT=$V_ROOT\"\n  echo \"MM=$V_MM\"\n  echo \"SUSFS=$V_SUSFS\"\n  echo \"DROID=$V_DROID\"\n  echo \"ROOT_LABEL=$V_LABEL\"\n  echo \"KERNEL_NAME=$V_NAME\"\n  echo \"KERNEL_REF=${{ github.ref_name }}@$COMMIT_SHORT\"\n} >> \"$GITHUB_ENV\"\n\necho \"[*] Quyet dinh: NAME=$V_NAME  ROOT=$V_ROOT  MULTI_MANAGER=$V_MM  SUSFS=$V_SUSFS  DROIDSPACES=$V_DROID\"\n"
+    - name: Enable Droidspaces Support (kABI-safe)
+      if: ${{ inputs.droidspaces }}
+      run: "cd \"$GITHUB_WORKSPACE/kernel\"\nDEFCONFIG_PATH=\"arch/${{ env.ARCH }}/configs/${{ env.DEFCONFIG }}\"\nBASE=\"${{ env.DROIDSPACES_REPO }}\"\nset -euo pipefail\n# Danh sach config nguon: config/droidspaces.fragment (da duoc sparse-checkout)\nFRAGMENT=\"$GITHUB_WORKSPACE/config/droidspaces.fragment\"\n[ -f \"$FRAGMENT\" ] || { echo \"::error::thieu $FRAGMENT\"; exit 1; }\necho \"[i] Nguon fragment: config/droidspaces.fragment (doc tu tai lieu upstream commit ${DROIDSPACES_DOC_COMMIT})\"\n\n# Helper: sua defconfig dung huong dan cua Droidspaces\n# (tim tung option rieng, sua dong co san, khong append trung)\nset_cfg() {\n  key=\"$1\"; val=\"$2\"; f=\"$3\"\n  if grep -qE \"^# ${key} is not set\\$\" \"$f\"; then\n    sed -i \"s|^# ${key} is not set\\$|${key}=${val}|\" \"$f\"\n  elif grep -qE \"^${key}=\" \"$f\"; then\n    sed -i \"s|^${key}=.*|${key}=${val}|\" \"$f\"\n  else\n    echo \"${key}=${val}\" >> \"$f\"\n  fi\n}\n\n# ---- 1) kABI patch SYSVIPC (co 3 ban, chon ban ap duoc) ----\n# Neu kernel\
+        \ da co san fix thi bo qua (khong apply lai)\nSCHED_H=\"include/linux/sched.h\"\nif grep -q \"ANDROID_KABI_USE(6, struct sysv_sem\" \"$SCHED_H\" || grep -q \"//struct sysv_sem\" \"$SCHED_H\"; then\n  echo \"[i] SYSVIPC kABI fix DA CO SAN trong kernel source \u2014 bo qua patch (van an toan de bat SYSVIPC)\"\nelse\n  APPLIED=0\n  for p in 001.GKI-below-6.12-fix_sysvipc_kabi_6_7_8.patch \\\n           001.GKI-below-6.12-fix_sysvipc_kabi_1_2_3.patch \\\n           001.GKI-below-6.12-fix_sysvipc_kabi_3_4_5.patch; do\n    curl -sL \"$BASE/$p\" -o /tmp/ds001.patch || continue\n    if [ ! -s /tmp/ds001.patch ] || ! grep -q \"^diff --git\" /tmp/ds001.patch; then\n      continue\n    fi\n    if git apply --check /tmp/ds001.patch 2>/dev/null; then\n      git apply /tmp/ds001.patch && echo \"[\u2713] Droidspaces kABI patch (SYSVIPC): $p\" || true\n      APPLIED=1; break\n    fi\n  done\n  if [ \"$APPLIED\" -ne 1 ]; then\n    echo \"::error::Khong ap duoc SYSVIPC kABI patch va kernel cung chua co fix \u2014 bat\
+        \ SYSVIPC se gay bootloop\"\n    exit 1\n  fi\nfi\n\n# ---- 2) kABI patch POSIX_MQUEUE (BAT BUOC voi kernel <= 5.10) ----\nUSER_H=\"include/linux/sched/user.h\"\nif grep -q \"ANDROID_KABI_USE(1, unsigned long mq_bytes\" \"$USER_H\" || grep -q \"//unsigned long mq_bytes\" \"$USER_H\"; then\n  echo \"[i] POSIX_MQUEUE kABI fix DA CO SAN trong kernel source \u2014 bo qua patch\"\nelse\n  P2=\"002.5.10_or_lower_use_android_abi_padding_for_posix_mqueue.patch\"\n  curl -sL \"$BASE/$P2\" -o /tmp/ds002.patch || { echo \"::error::Tai patch POSIX_MQUEUE that bai\"; exit 1; }\n  if git apply --check /tmp/ds002.patch 2>/dev/null; then\n    git apply /tmp/ds002.patch\n  else\n    patch -p1 --forward < /tmp/ds002.patch || {\n      echo \"::error::Khong ap duoc POSIX_MQUEUE kABI patch va kernel cung chua co fix\"\n      exit 1\n    }\n  fi\n  echo \"[\u2713] Droidspaces kABI patch (POSIX_MQUEUE) applied\"\nfi\n\n# ---- 3) gki_defconfig theo bo GKI-only \u2014 lay TU FRAGMENT (khong hardcode) ----\n# Doc tung dong `CONFIG_*=y` (bo qua dong comment), soi sang tung\
+        \ option rieng\n# theo huong dan tai lieu (khong dan trung khoi vao cuoi file).\nN_CFG=0\nwhile IFS= read -r line; do\n  key=\"${line%%=*}\"          # CONFIG_XXX\n  val=\"${line#*=}\"           # y\n  set_cfg \"$key\" \"$val\" \"$DEFCONFIG_PATH\"\n  N_CFG=$(( N_CFG + 1 ))\ndone < <(grep -E '^CONFIG_[A-Za-z0-9_]+=[ym]$' \"$FRAGMENT\")\necho \"[\u2713] Droidspaces: da soi sang $N_CFG option vao $DEFCONFIG_PATH\"\n\n# ---- 4) TUYET DOI KHONG BAT 2 option break kABI (nguon tai lieu) ----\n# CFS_BANDWIDTH / CGROUP_PIDS doi kich thuoc struct scheduler+cgroup ->\n# doi CRC cua hang nghin symbol export -> module stock tu choi nap -> bootloop.\nBADKABI=$(grep -E '^CONFIG_(CFS_BANDWIDTH|CGROUP_PIDS)=y' \"$DEFCONFIG_PATH\" || true)\nif [ -n \"$BADKABI\" ]; then\n  echo \"::error::gki_defconfig dang bat option break kABI (khong duoc): $BADKABI\"\n  echo \"   Nguon: tai lieu Droidspaces \u2014 'These two BREAK the kABI and no patch covers them'.\"\n  echo \"   Khong the tach bo de build xanh:\
+        \ structure that su doi, module stock doc sai offset.\"\n  exit 1\nfi\necho \"[\u2713] Droidspaces: khong co option break kABI nao duoc bat\"\n"
+    - name: Integrate Root Solution
+      run: "cd \"$GITHUB_WORKSPACE/kernel\"\nDEFCONFIG_PATH=\"arch/${{ env.ARCH }}/configs/${{ env.DEFCONFIG }}\"\nROOT=\"${{ env.ROOT }}\"\nset -euo pipefail\nretry() {\n  local i\n  for i in 1 2 3; do\n    \"$@\" && return 0\n    echo \"[!] Lan thu $i that bai: $*\" >&2\n    sleep $((i * 5))\n  done\n  return 1\n}\n\ncase \"$ROOT\" in\n  BakaSU)        KSU_URL=\"${{ env.BAKASU_REPO }}\"; KSU_BRANCH=\"${{ inputs.bakasu_branch }}\" ;;\n  SukiSU-Ultra)  KSU_URL=\"${{ env.SUKISU_REPO }}\"; KSU_BRANCH=\"${{ inputs.sukisu_branch }}\" ;;\n  KernelSU-Next) KSU_URL=\"${{ inputs.ksu_next_repo }}\"; KSU_BRANCH=\"${{ inputs.ksu_next_branch }}\" ;;\n  AgnesSU)       KSU_URL=\"https://github.com/Yakayna/AgnesSU\"; KSU_BRANCH=\"${{ inputs.agnesu_branch }}\" ;;\n  KittiSU)       KSU_URL=\"https://github.com/terebiko/KittiSU\"; KSU_BRANCH=\"${{ inputs.kittisu_branch }}\" ;;\n  None)          KSU_URL=\"\"; KSU_BRANCH=\"\" ;;\nesac\n\nif [ -n \"$KSU_URL\" ]; then\n  if { [ \"$ROOT\" = \"KernelSU-Next\" ] || [ \"$ROOT\" = \"AgnesSU\" ] || [ \"$ROOT\" = \"KittiSU\" ]; } && [ -n \"$KSU_BRANCH\" ]; then\n    echo \"[*] Integrating $ROOT tu $KSU_URL (branch: $KSU_BRANCH) ...\"\n    retry git clone --depth=1 --branch \"$KSU_BRANCH\" \"$KSU_URL\" KernelSU\n  elif [ -n \"$KSU_BRANCH\" ] && [ \"$KSU_BRANCH\" != \"main\" ]; then\n    echo \"[*] Integrating $ROOT tu $KSU_URL (branch/tag: $KSU_BRANCH) ...\"\n    retry git clone --depth=1 --branch \"$KSU_BRANCH\" \"$KSU_URL\" KernelSU\n  else\n    API=\"https://api.github.com/repos/${KSU_URL#https://github.com/}\"\n    TAG=$(curl -sL -H \"Accept: application/vnd.github+json\" \\\n                -H \"Authorization: Bearer ${{ github.token }}\" \"$API/releases/latest\" \\\n          | jq -r '.tag_name // empty' 2>/dev/null || true)\n\n    echo \"[*] Integrating $ROOT tu $KSU_URL ...\"\n    if [ -n \"$TAG\" ]; then\n      echo \"[i] Dung tag release moi nhat: $TAG\"\n      retry git clone --depth=1 --branch \"$TAG\" \"$KSU_URL\" KernelSU\n    else\n      echo \"[i] Repo khong co release -> dung nhanh main (moi nhat)\"\n      retry git clone --depth=1 \"$KSU_URL\" KernelSU\n    fi\n  fi\n  KSU_SHA=$(git -C KernelSU rev-parse --short HEAD)\n  KSU_REF=$(git -C KernelSU rev-parse --abbrev-ref HEAD)\n  echo \"[i] $ROOT: $KSU_REF @ $KSU_SHA\"\n  if [ \"${{ env.SUSFS }}\" = \"true\" ] && ! grep -qE '^config KSU_SUSFS$' KernelSU/kernel/Kconfig; then\n    echo \"::error::$ROOT nhanh $KSU_REF khong co config KSU_SUSFS trong kernel/Kconfig - khong the build SUSFS voi driver nay. Chon root/nhanh khac (BakaSU tu v4.2.0-rc3, AgnesSU, KittiSU, SukiSU builtin, KSU-Next fork pershoot nhanh dev-susfs/next-susfs) hoac dat enable_susfs=false.\"\n    exit 1\n  fi\n  ROOT_REF=\"$KSU_REF@$KSU_SHA\"\n  echo \"ROOT_REF=$ROOT_REF\" >> \"$GITHUB_ENV\"\n  case \"$ROOT\" in\n    BakaSU)        echo \"BAKASU_REF=$ROOT_REF\" >> \"$GITHUB_ENV\" ;;\n    SukiSU-Ultra)  echo \"SUKISU_REF=$ROOT_REF\" >> \"$GITHUB_ENV\" ;;\n  esac\n\n  # Cai dat thu cong (giong kernel/setup.sh cua BakaSU: symlink drivers/kernelsu\n  # + obj-$(CONFIG_KSU) += kernelsu/ + source \"drivers/kernelsu/Kconfig\")\n  ln -sfn ../KernelSU/kernel drivers/kernelsu\n  grep -q \"kernelsu\" drivers/Makefile || printf \"\\nobj-\\$(CONFIG_KSU) += kernelsu/\\n\" >> drivers/Makefile\n  grep -q 'source \"\
+        drivers/kernelsu/Kconfig\"' drivers/Kconfig || \\\n    sed -i '/endmenu/i source \"drivers/kernelsu/Kconfig\"' drivers/Kconfig\n\n  # Verify NGHIEM NGAT\n  if ! grep -q \"kernelsu\" drivers/Makefile || ! grep -q 'drivers/kernelsu/Kconfig' drivers/Kconfig; then\n    echo \"::error::Cai dat root that bai: drivers/Makefile/Kconfig chua duoc sua\"\n    exit 1\n  fi\n  echo \"[\u2713] $ROOT da vao kernel: $(git -C KernelSU log --oneline -1 2>/dev/null | head -c 60)\"\n  ls -l drivers/kernelsu\n\nelse\n  :\nfi\n\n\n# Cau hinh defconfig cho root \u2014 dung set_cfg chu khong append trung dong\nset_cfg() {\n  key=\"$1\"; val=\"$2\"; f=\"$3\"\n  if grep -qE \"^# ${key} is not set\\$\" \"$f\"; then\n    sed -i \"s|^# ${key} is not set\\$|${key}=${val}|\" \"$f\"\n  elif grep -qE \"^${key}=\" \"$f\"; then\n    sed -i \"s|^${key}=.*|${key}=${val}|\" \"$f\"\n  else\n    echo \"${key}=${val}\" >> \"$f\"\n  fi\n}\nclr_cfg() {\n  key=\"$1\"; f=\"$2\"\n  if grep -qE \"^${key}=\" \"$f\"; then\n    sed -i \"s|^${key}=.*|# ${key} is not set|\" \"$f\"\n  elif ! grep -qE \"^# ${key} is not set$\" \"$f\"; then\n    echo \"# ${key} is not set\" >> \"$f\"\n  fi\n}\nif [ \"$ROOT\" != \"None\" ]; then\n  set_cfg \"CONFIG_KSU\" \"y\" \"$DEFCONFIG_PATH\"\n  # Multi Manager chi co trong BakaSU/AgnesSU/KittiSU (da xac minh MULTI_MANAGER trong Kconfig)\n  if [ \"${{ env.MM }}\" = \"true\" ] && { [ \"$ROOT\" = \"BakaSU\" ] || [ \"$ROOT\" = \"AgnesSU\" ] || [ \"$ROOT\" = \"KittiSU\" ]; }; then\n    set_cfg \"CONFIG_KSU_MULTI_MANAGER_SUPPORT\" \"y\" \"$DEFCONFIG_PATH\"\n  elif { [ \"$ROOT\" = \"BakaSU\" ] || [ \"$ROOT\" = \"AgnesSU\" ] || [ \"$ROOT\" = \"KittiSU\" ]; }; then\n    clr_cfg \"CONFIG_KSU_MULTI_MANAGER_SUPPORT\" \"$DEFCONFIG_PATH\"\n  fi\nfi\n\necho \"[\u2713] Root integration complete\"\n"
+    - name: Integrate SUSFS
+      if: ${{ inputs.enable_susfs }}
+      run: "cd \"$GITHUB_WORKSPACE/kernel\"\nDEFCONFIG_PATH=\"arch/${{ env.ARCH }}/configs/${{ env.DEFCONFIG }}\"\nset -euo pipefail\nretry() {\n  local i\n  for i in 1 2 3; do\n    \"$@\" && return 0\n    echo \"[!] Lan thu $i that bai: $*\" >&2\n    sleep $((i * 5))\n  done\n  return 1\n}\necho \"[*] Integrating SUSFS tu simonpunk/susfs4ksu (branch: ${{ inputs.susfs_branch }}, phien ban moi nhat)...\"\n  retry git clone --depth=1 --branch \"${{ inputs.susfs_branch }}\" \\\n    \"${{ env.SUSFS_REPO }}\" \\\n    \"$GITHUB_WORKSPACE/susfs\"\n  SUSFS_DIR=\"$GITHUB_WORKSPACE/susfs\"\n  SUSFS_SHA=$(git -C \"$SUSFS_DIR\" rev-parse\
+        \ --short HEAD)\n  echo \"[i] SUSFS commit: $SUSFS_SHA\"\n  echo \"SUSFS_REF=${{ inputs.susfs_branch }}@$SUSFS_SHA\" >> \"$GITHUB_ENV\"\n\n# 1. Ch\xE9p c\xE1c file C/H c\u1EE7a SUSFS v\xE0o fs/ v\xE0 include/linux/\ncp -rv \"$SUSFS_DIR/kernel_patches/fs/\"* fs/\ncp -rv \"$SUSFS_DIR/kernel_patches/include/linux/\"* include/linux/\n\n# 2. Patch kernel GKI 5.10\nPATCH_FILE=$(ls \"$SUSFS_DIR\"/kernel_patches/50_add_susfs_in_*.patch 2>/dev/null | head -1 || true)\nif [ -f \"$PATCH_FILE\" ]; then\n  if git apply --check \"$PATCH_FILE\" 2>/dev/null; then\n    git apply \"$PATCH_FILE\"\n  else\n    patch -p1 --forward --fuzz=0 < \"$PATCH_FILE\" || echo \"[!] Patch completed with warnings/fuzz\"\n  fi\nfi\n\n# 3. K\xEDch ho\u1EA1t to\xE0n b\u1ED9 flag SUSFS trong defconfig (set_cfg, khong append trung)\nset_cfg() {\n  key=\"$1\"; val=\"$2\"; f=\"$3\"\n  if grep -qE \"^# ${key} is not set\\$\" \"$f\"; then\n    sed -i \"s|^# ${key} is not set\\$|${key}=${val}|\" \"$f\"\n  elif grep -qE \"^${key}=\" \"$f\"\
+        ; then\n    sed -i \"s|^${key}=.*|${key}=${val}|\" \"$f\"\n  else\n    echo \"${key}=${val}\" >> \"$f\"\n  fi\n}\nset_cfg \"CONFIG_KSU_SUSFS\"                              \"y\" \"$DEFCONFIG_PATH\"\nset_cfg \"CONFIG_KSU_SUSFS_SUS_PATH\"                     \"y\" \"$DEFCONFIG_PATH\"\nset_cfg \"CONFIG_KSU_SUSFS_SUS_MOUNT\"                    \"y\" \"$DEFCONFIG_PATH\"\nset_cfg \"CONFIG_KSU_SUSFS_SUS_KSTAT\"                    \"y\" \"$DEFCONFIG_PATH\"\nset_cfg \"CONFIG_KSU_SUSFS_SUS_MAP\"                      \"y\" \"$DEFCONFIG_PATH\"\nset_cfg \"CONFIG_KSU_SUSFS_SPOOF_UNAME\"\
+        \                  \"y\" \"$DEFCONFIG_PATH\"\nset_cfg \"CONFIG_KSU_SUSFS_ENABLE_LOG\"                   \"y\" \"$DEFCONFIG_PATH\"\nset_cfg \"CONFIG_KSU_SUSFS_OPEN_REDIRECT\"                \"y\" \"$DEFCONFIG_PATH\"\nset_cfg \"CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS\"       \"y\" \"$DEFCONFIG_PATH\"\nset_cfg \"CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG\"  \"y\" \"$DEFCONFIG_PATH\"\n\n# 4. Kiem tra la SUSFS da thuc su vao kernel source\nif ! grep -rqs \"KSU_SUSFS_SUS_PATH\" fs/ include/linux/ drivers/ 2>/dev/null; then\n  echo \"::error::SUSFS khong xuat hien trong kernel source sau khi patch\"\n  exit 1\nfi\necho \"[\u2713] SUSFS integrated successfully\"\n"
+    - name: Build Kernel Image
+      run: "cd \"$GITHUB_WORKSPACE/kernel\"\nexport PATH=\"$GITHUB_WORKSPACE/toolchain/clang/bin:$PATH\"\nset -euo pipefail\nmkdir -p out\n\nMAKE_ARGS=(\n  ARCH=\"${{ env.ARCH }}\"\n  SUBARCH=\"${{ env.SUBARCH }}\"\n  O=out\n  CC=clang\n  LLVM=1\n  LLVM_IAS=1\n  CROSS_COMPILE=aarch64-linux-gnu-\n  CROSS_COMPILE_COMPAT=arm-linux-gnueabi-\n  KCFLAGS=\"-D__ANDROID_COMMON_KERNEL__ -Wno-error\"\n)\n\nDEFCONFIG_PATH=\"arch/${{ env.ARCH }}/configs/${{ env.DEFCONFIG }}\"\nsed -i \"s|^CONFIG_LOCALVERSION=.*|CONFIG_LOCALVERSION=\"-${KERNEL_NAME}\"|\" \"$DEFCONFIG_PATH\"\nif grep -qE '^CONFIG_LOCALVERSION_AUTO=' \"$DEFCONFIG_PATH\"; then\n  sed -i 's|^CONFIG_LOCALVERSION_AUTO=.*|# CONFIG_LOCALVERSION_AUTO is not set|' \"$DEFCONFIG_PATH\"\nfi\necho \"[i] LOCALVERSION -> $(grep -E '^CONFIG_LOCALVERSION|^# CONFIG_LOCALVERSION_AUTO' \"$DEFCONFIG_PATH\" | tr '\\n' ' ')\"\n\n# 1. CLEAN source tree first (mrproper) - MUST be before applying patches\necho \"[*] Cleaning source tree with mrproper...\"\nmake \"${MAKE_ARGS[@]}\"\
+        \ mrproper\n\n# LTO full — yeu cau vinh vien: phai luon bat CONFIG_LTO_CLANG_FULL\nif ! grep -q '^CONFIG_LTO_CLANG_FULL=y' \"$DEFCONFIG_PATH\"; then\n  sed -i 's|^CONFIG_LTO_CLANG_THIN=y$|# CONFIG_LTO_CLANG_THIN is not set|' \"$DEFCONFIG_PATH\"\n  sed -i 's|^# CONFIG_LTO_CLANG_FULL is not set$|CONFIG_LTO_CLANG_FULL=y|' \"$DEFCONFIG_PATH\"\n  grep -q '^CONFIG_LTO_CLANG_FULL=y' \"$DEFCONFIG_PATH\" || echo 'CONFIG_LTO_CLANG_FULL=y' >> \"$DEFCONFIG_PATH\"\nfi\ngrep -E '^CONFIG_LTO' \"$DEFCONFIG_PATH\" | sed 's/^/[i] defconfig LTO: /'\n\nmake \"${MAKE_ARGS[@]}\" \"${{ env.DEFCONFIG }}\"\n\nif [ \"${{ inputs.enable_susfs }}\" = \"true\" ]; then\n  echo \"[*] Enabling SUSFS configs via scripts/config...\"\n  for cfg in KSU_SUSFS KSU_SUSFS_SUS_PATH KSU_SUSFS_SUS_MOUNT KSU_SUSFS_SUS_KSTAT KSU_SUSFS_SUS_MAP KSU_SUSFS_SPOOF_UNAME KSU_SUSFS_ENABLE_LOG KSU_SUSFS_OPEN_REDIRECT KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG; do\n    ./scripts/config --file out/.config --enable \"$cfg\" || echo \"[!] Warning: $cfg not found or already\
+        \ set\"\n  done\n  \n  echo \"[*] SUSFS configs enabled:\"\n  for c in KSU_SUSFS KSU_SUSFS_SUS_PATH KSU_SUSFS_SUS_MOUNT KSU_SUSFS_SUS_KSTAT KSU_SUSFS_SUS_MAP KSU_SUSFS_SPOOF_UNAME KSU_SUSFS_ENABLE_LOG KSU_SUSFS_OPEN_REDIRECT KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG; do\n    grep -E \"^CONFIG_${c}=|^# CONFIG_${c} is not set\" out/.config || echo \"    CONFIG_${c}=<(khong xuat hien)>\"\n  done\nfi\n\n# Hard verify: tinh nang ghi tren ten zip PHAI co that trong out/.config\nif [ \"$SUSFS\" = \"true\" ]; then\n  if ! grep -q '^CONFIG_KSU_SUSFS=y' out/.config; then\n    echo \"::error::CONFIG_KSU_SUSFS khong bang y trong out/.config — zip se ghi +SUSFS ma khong co SUSFS\"\n    exit 1\n  fi\n  echo \"[i] Verify: CONFIG_KSU_SUSFS=y co trong out/.config\"\nfi\nif [ \"$MM\" = \"true\" ]; then\n  if ! grep -q '^CONFIG_KSU_MULTI_MANAGER_SUPPORT=y' out/.config; then\n    echo \"::error::CONFIG_KSU_MULTI_MANAGER_SUPPORT khong bang y trong out/.config — zip ghi +MultiMgr ma khong co tinh nang\"\n    exit 1\n  fi\n  echo \"[i] Verify: CONFIG_KSU_MULTI_MANAGER_SUPPORT=y co trong out/.config\"\nfi\nif [ \"$MM\" = \"false\" ] && { [ \"$ROOT\" = \"BakaSU\" ] || [ \"$ROOT\" = \"AgnesSU\" ] || [ \"$ROOT\" = \"KittiSU\" ]; }; then\n  if grep -q '^CONFIG_KSU_MULTI_MANAGER_SUPPORT=y' out/.config; then\n    echo \"::error::CONFIG_KSU_MULTI_MANAGER_SUPPORT=y trong out/.config nhung multi_manager=false\"\n    exit 1\n  fi\n  echo \"[i] Verify: CONFIG_KSU_MULTI_MANAGER_SUPPORT khong co trong out/.config (MM=false)\"\nfi\n\nUTS=$(sed -n 's/^#define UTS_RELEASE \"\\\\(.*\\\\)\"/\\1/p' out/include/generated/utsrelease.h 2>/dev/null || true)\nVMF=$(grep -hE '^#define VERMAGIC_STRING' include/linux/vermagic.h 2>/dev/null | head -1 || true)\n{\n  echo \"UTS_RELEASE=${UTS:-unknown}\"\n  echo \"VERMAGIC_TMPL=${VMF:-unknown}\"\n} >> \"$GITHUB_ENV\"\necho\
+        \ \"[i] UTS_RELEASE (uname -r) = ${UTS:-<chua sinh>}\"\necho \"[i] VERMAGIC template      = ${VMF:-<khong lay duoc>}\"\necho \"[i] MODVERSIONS            = $(grep -E '^CONFIG_MODVERSIONS=' out/.config || echo 'khong bat')\"\n\necho \"[*] Cac config quan trong da co trong .config:\"\nfor c in KSU KSU_MULTI_MANAGER_SUPPORT KSU_SUSFS SYSVIPC POSIX_MQUEUE IPC_NS PID_NS USER_NS DEVTMPFS IP_SET TMPFS_XATTR; do\n  v=$(grep -E \"^CONFIG_${c}=|^# CONFIG_${c} is not set\" \"out/.config\" | head -1 || true)\n  echo \"    ${v:-CONFIG_${c}=<(khong xuat hien)>}\"\ndone\n\n# LTO full — khong cho phep fallback im lang (toolchain khong ho tro -> FAIL ro rang)\nif ! grep -q '^CONFIG_LTO_CLANG_FULL=y' out/.config; then\n  echo \"::error::CONFIG_LTO_CLANG_FULL khong =y trong out/.config — LTO full la bat buoc. Config LTO thuc te:\"\n  grep -E 'CONFIG_LTO' out/.config || echo \"    (khong co config LTO nao)\"\n  exit 1\nfi\necho \"[i] LTO: CONFIG_LTO_CLANG_FULL=y (da xac minh trong out/.config)\"\n\necho \"[*] Compiling kernel Image ($(nproc) threads)...\"\nmake -j\"$(nproc)\" \"${MAKE_ARGS[@]}\" Image || { echo \"::error::Compile kernel Image that bai\"; exit 1; }\n\nIMAGE_PATH=\"\"\nif [ -f \"out/arch/${{ env.ARCH }}/boot/Image.lz4\" ]; then\n  IMAGE_PATH=\"out/arch/${{ env.ARCH }}/boot/Image.lz4\"\nelif [ -f \"out/arch/${{ env.ARCH }}/boot/Image\" ]; then\n  IMAGE_PATH=\"out/arch/${{ env.ARCH }}/boot/Image\"\nfi\n\nif [ -z \"$IMAGE_PATH\" ]; then\n  echo \"::error::Kernel build failed: Image\
+        \ / Image.lz4 not found!\"\n  exit 1\nfi\n\necho \"KERNEL_IMAGE_PATH=$IMAGE_PATH\" >> \"$GITHUB_ENV\"\necho \"KERNEL_IMAGE_NAME=$(basename $IMAGE_PATH)\" >> \"$GITHUB_ENV\"\n"
+    - name: Verify Droidspaces fragment in out/.config
+      if: ${{ inputs.droidspaces }}
+      run: "cd \"$GITHUB_WORKSPACE/kernel\"\nFRAGMENT=\"$GITHUB_WORKSPACE/config/droidspaces.fragment\"\nset -euo pipefail\nMISSING=\"\"\nN=0\nwhile IFS= read -r line; do\n  key=\"${line%%=*}\"\n  N=$(( N + 1 ))\n  grep -qE \"^${key}=(y|m)$\" out/.config || MISSING=\"${MISSING} ${key}\"\ndone < <(grep -E '^CONFIG_[A-Za-z0-9_]+=[ym]$' \"$FRAGMENT\")\n\necho \"[*] Dang kiem tra $N config tu fragment...\"\nif [ -n \"$MISSING\" ]; then\n  echo \"::error::Kconfig da BO di cac config sau (khong tim thay trong out/.config):$MISSING\"\n  echo \"   Nguon fragment: config/droidspaces.fragment (tai lieu upstream commit $DROIDSPACES_DOC_COMMIT)\"\n  echo \"   Ly do thuong gap: thieu dependency Kconfig, hoac kernel nhanh nay khong co option do.\"\n  echo \"   Khong duoc bo qua: container se thieu tinh nang (thieu PID/UTS/IPC namespace = fatal).\"\n  exit 1\nfi\necho \"[\u2713] Toan bo $N config Droidspaces da =y/=m trong out/.config\"\n\n# 2 option break kABI van khong duoc phep co\nBAD=$(grep -E '^CONFIG_(CFS_BANDWIDTH|CGROUP_PIDS)=y'\
+        \ out/.config || true)\nif [ -n \"$BAD\" ]; then\n  echo \"::error::out/.config dang co option break kABI: $BAD \u2014 module stock se tu choi nap\"\n  exit 1\nfi\n\n# Ghi nguon vao env de buoc tong ket in ra\nDSC=$(grep -m1 -E '^\\s*#\\s*Commit\\s*:' \"$FRAGMENT\" | sed 's/.*Commit *: *//' | tr -d ' ' || true)\necho \"DROIDSPACES_COMMIT=${DSC:-$DROIDSPACES_DOC_COMMIT}\" >> \"$GITHUB_ENV\"\n"
+    - name: Package AK3 flashable zip (scripts/package-ak3.sh)
+      env:
+        V_NAME: ${{ steps.resolve.outputs.kernel_name }}
+        V_LABEL: ${{ steps.resolve.outputs.root_label }}
+        V_WARNINGS: ${{ steps.resolve.outputs.warnings }}
+      run: "set -euo pipefail\n\n[ -f scripts/package-ak3.sh ] || { echo \"::error::thieu scripts/package-ak3.sh (sparse-checkout?)\"; exit 1; }\n[ -f anykernel3/anykernel.sh ] || { echo \"::error::thieu anykernel3/anykernel.sh\"; exit 1; }\n[ -f \"ak3/anykernel-${AK3_VARIANT}.sh\" ] || { echo \"::error::thieu ak3/anykernel-${AK3_VARIANT}.sh\"; exit 1; }\n\n# Nhan + nhan hien thi da duoc job validate-inputs tinh ro \u2014 lay nguyen,\n# khong tinh lai de khong lech giua run-name / summary / ten zip.\nROOT=\"${ROOT:-None}\"\nROOT_LABEL=\"${V_LABEL:-$ROOT}\"\nKNAME=\"${V_NAME:-Zyomi16}\"\n\nDATE_TAG=$(date +'%Y%m%d_%H%M')\n# Ten nhanh co the chua '/' (vi du chinh nhanh dang dung: ci-fix/ui-inputs).\n# De nguyen trong ten file thi '/' tro thanh duong dan thu muc ->\n# `zip` loi \"Could not create output file\" voi chi so ra thi 15.\n# Chi doi phan ten file; manifest / variant.prop / summary van giu ten goc.\nBRANCH_SAFE=\"$(printf '%s' '${{ github.ref_name }}' | tr '/' '-')\"\nZIP_NAME=\"\
+        ${KNAME}-${KERNEL_VERSION}-${BRANCH_SAFE}-${ROOT_LABEL}-${DATE_TAG}.zip\"\nPKG_BASE=\"$GITHUB_WORKSPACE/${ZIP_NAME%.zip}\"\n\nif [ -f \"${PKG_BASE}.zip\" ]; then\n  PKG_BASE=\"${PKG_BASE}-$(date +%s)\"\n  ZIP_NAME=\"${PKG_BASE##*/}.zip\"\nfi\n\n{\n  echo \"ZIP_NAME=$ZIP_NAME\"\n  echo \"ROOT_LABEL=$ROOT_LABEL\"\n  echo \"PKG_BASE=$PKG_BASE\"\n  echo \"BRANCH_SAFE=$BRANCH_SAFE\"\n} >> \"$GITHUB_ENV\"\n\n# Canh bao tu job validate-inputs -> vao manifest .txt kem zip\nWARN_ARGS=()\nwhile IFS= read -r w; do\n  [ -n \"$w\" ] && WARN_ARGS+=( --warning \"$w\" )\ndone <<< \"${V_WARNINGS:-}\"\n\n# Kiem tra CONFIG khop lua chon nam ngay trong script (loi 12/13/16/17) \u2014\n# zip nao khong khop thi khong bao gio duoc tao ra.\nbash scripts/package-ak3.sh \\\n  --image   \"$GITHUB_WORKSPACE/kernel/${KERNEL_IMAGE_PATH}\" \\\n  --ak3     \"$GITHUB_WORKSPACE/anykernel3\" \\\n  --config  \"$GITHUB_WORKSPACE/kernel/out/.config\" \\\n  --root    \"$ROOT\" \\\n  --susfs   \"${SUSFS:-false}\" \\\n\
+        \  --multi-manager \"${MM:-false}\" \\\n  --droidspace    \"${DROID:-false}\" \\\n  --version \"${KERNEL_VERSION}\" \\\n  --branch  \"${{ github.ref_name }}\" \\\n  --commit  \"${COMMIT_HASH}\" \\\n  --label   \"$ROOT_LABEL\" \\\n  --kernel-name \"$KNAME\" \\\n  --name    \"${ZIP_NAME%.zip}\" \\\n  --ak3-variant \"${AK3_VARIANT}\" \\\n  --out     \"$GITHUB_WORKSPACE\" \\\n  \"${WARN_ARGS[@]}\"\n"
+    - name: Upload AK3 package + checksum
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.ZIP_NAME }}
+        path: '${{ env.PKG_BASE }}.zip
+
+          ${{ env.PKG_BASE }}.zip.sha256
+
+          ${{ env.PKG_BASE }}.txt
+
+          '
+        retention-days: 15
+        if-no-files-found: error
+    - name: Upload Raw Kernel Image
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.KERNEL_IMAGE_NAME }}-${{ env.BRANCH_SAFE }}-${{ env.ROOT_LABEL }}
+        path: ${{ github.workspace }}/kernel/${{ env.KERNEL_IMAGE_PATH }}
+        retention-days: 15
+    - name: Generate Build Summary
+      env:
+        V_WARNINGS: ${{ steps.resolve.outputs.warnings }}
+      run: "# Bang ref/commit da giai quyet (yeu cau: ghi ro ref/commit cua tung nguon)\nKSU_REF_INFO=\"${ROOT_REF:-\u2014 (khong tick root)}\"\nSUSFS_INFO=\"Off\"\n[ \"${SUSFS:-false}\" = \"true\" ] && SUSFS_INFO=\"${SUSFS_REF:-simonpunk/susfs4ksu}\"\nDROID_INFO=\"Off\"\n[ \"${DROID:-false}\" = \"true\" ] && DROID_INFO=\"commit ${DROIDSPACES_COMMIT:-$DROIDSPACES_DOC_COMMIT}\"\nMM_INFO=\"Off\"\n[ \"${MM:-false}\" = \"true\" ] && MM_INFO=\"On (CONFIG_KSU_MULTI_MANAGER_SUPPORT)\"\n\n{\n  echo \"## \U0001F5E1\uFE0F Zyomi16 Kernel GKI 5.10 \u2014 Build Complete\"\n  echo \"\"\n  echo \"### B\u1EA3ng ngu\u1ED3n \u0111\xE3 d\xF9ng\"\n  echo \"\"\n  echo \"| Ngu\u1ED3n | Ref/Commit |\"\n  echo \"| :--- | :--- |\"\n  echo \"| Kernel | \\`${KERNEL_REF:-${{ github.ref_name }}}\\` |\"\n  echo \"| Root Solution ($ROOT_LABEL) | \\`${KSU_REF_INFO}\\` |\"\n  echo \"| SUSFS | \\`${SUSFS_INFO}\\` |\"\n  echo \"| Droidspaces | \\`${DROID_INFO}\\` |\"\n  echo \"\"\n  echo \"### Th\xF4ng s\u1ED1 build\"\n  echo \"\"\n  echo \"| Parameter | Value |\"\n  echo \"| :--- | :--- |\"\n  echo \"| **Kernel Version** | \\`${{ env.KERNEL_VERSION }}\\` |\"\n  echo \"| **uname -r (UTS_RELEASE)** | \\`${UTS_RELEASE:-unknown}\\` |\"\n  echo \"| **CONFIG_LOCALVERSION** | \\`-${{ env.KERNEL_NAME }}\\` |\"\n  echo \"| **CONFIG_MODVERSIONS** | \\`$(grep -E '^CONFIG_MODVERSIONS=' kernel/out/.config || echo 'khong bat')\\` |\"\n  echo \"| **Commit** | \\`${{ env.COMMIT_HASH }}\\` |\"\n  echo \"| **Kernel Branch** | \\`${{ github.ref_name }}\\` |\"\n  echo \"| **Root Solution** | \\`${{ env.ROOT_LABEL }}\\` |\"\n  echo \"| **Multi Manager** | \\`${MM_INFO}\\` |\"\n  echo \"| **SUSFS Status** | \\`${SUSFS_INFO}\\` |\"\n  echo \"| **Droidspaces** | \\`${DROID_INFO}\\` |\"\n  echo \"| **AnyKernel3** | \\`anykernel3/\\` (vendored)\
+        \ |\"\n  echo \"| **Flashable Zip** | \\`${{ env.ZIP_NAME }}\\` |\"\n  echo \"| **Kernel Image** | \\`${{ env.KERNEL_IMAGE_NAME }}\\` |\"\n  echo \"\"\n  if [ -n \"${V_WARNINGS:-}\" ]; then\n    echo \"### \u26A0\uFE0F C\u1EA3nh b\xE1o (c\u0169ng n\u1EB1m trong file \\`.txt\\` c\u1EE7a zip)\"\n    while IFS= read -r w; do [ -n \"$w\" ] && echo \"- $w\"; done <<< \"$V_WARNINGS\"\n    echo \"\"\n  fi\n  echo \"### \U0001F50D Vermagic \u2014 ki\u1EC3m tra tr\u01B0\u1EDBc khi flash\"\n  echo \"\"\n  echo \"kernel/module.c c\u1EE7a ch\xEDnh c\xE2y n\xE0y: \\`check_modinfo()\\` so \\`vermagic\\` c\u1EE7a module\"\n  echo \"v\u1EDBi kernel. \\`same_magic()\\` **b\u1ECF qua ph\u1EA7n UTS_RELEASE** khi module mang CRC\"\n  echo \"(\\`has_crcs\\` \u2192 \\`strcspn(amagic, \\\" \\\")\\`), t\u1EE9c l\xE0 \u0111\u1ED5i h\u1EADu t\u1ED1 \\`LOCALVERSION\\` kh\xF4ng l\xE0m\"\n  echo \"module vendor_dlkm t\u1EEB ch\u1ED1i n\u1EA1p \u2014 **v\u1EDBi \u0111i\u1EC1u ki\u1EC7n** module c\xF3 \\`__versions\\\
+        `\"\n  echo \"(vendor_dlkm built v\u1EDBi \\`CONFIG_MODVERSIONS=y\\` th\xEC c\xF3).\"\n  echo \"\"\n  echo \"\u26A0\uFE0F **C\u1EA7n \u0111\u1ED1i chi\u1EBFu tr\xEAn m\xE1y th\u1EADt** (kh\xF4ng ki\u1EC3m tra \u0111\u01B0\u1EE3c trong CI):\"\n  echo '```bash'\n  echo \"adb shell 'cat /proc/sys/kernel/osrelease'          # phai khop ${UTS_RELEASE:-?}\"\n  echo \"adb shell 'ls /vendor_dlkm/lib/modules/*.ko | head'  \"\n  echo \"adb shell 'strings /vendor_dlkm/lib/modules/*.ko | grep -m1 vermagic'\"\n  echo '```'\n  echo \"N\u1EBFu c\xF3 module n\xE0o **kh\xF4ng c\xF3 CRC** th\xEC n\xF3 so c\u1EA3 chu\u1ED7i release \u2192 n\u1EBFu kh\xF4ng n\u1EA1p\"\n  echo \"\u0111\u01B0\u1EE3c, b\xE1o l\u1EA1i: s\u1EBD chuy\u1EC3n sang ch\u1EC9 \xE1p \\`kernel_name\\` cho banner/zip, kh\xF4ng \u0111\u1ED5i uname.\"\n  echo \"\"\n  echo \"### \U0001F4E6 Flash Instructions\"\n  echo \"1. **Backup boot tr\u01B0\u1EDBc** (zip AK3 t\u1EF1 backup v\xE0o \\`/sdcard/Zyomi16Kernel_Backup(nguon du phong khi\
+        \ bootloop)\\`)\"\n  echo \"2. V\xE0o Custom Recovery (TWRP / OrangeFox)\"\n  echo \"3. Flash \\`${{ env.ZIP_NAME }}\\` \u2192 Reboot System\"\n} >> \"$GITHUB_STEP_SUMMARY\"\n"
