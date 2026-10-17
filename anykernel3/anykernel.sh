@@ -25,10 +25,10 @@ KERNEL_AUTHOR="Zyomi16"
 
 ### AnyKernel install
 ## Boot shell variables
-block=boot
-is_slot_device=auto
-ramdisk_compression=auto
-patch_vbmeta_flag=auto
+BLOCK=boot
+IS_SLOT_DEVICE=auto
+RAMDISK_COMPRESSION=auto
+PATCH_VBMETA_FLAG=auto
 
 # Import functions/variables and setup patching
 . tools/ak3-core.sh

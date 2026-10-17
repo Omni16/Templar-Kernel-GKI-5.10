@@ -25,10 +25,10 @@ KERNEL_AUTHOR="Zyomi16"
 
 ### AnyKernel install
 ## Boot shell variables
-block=boot
-is_slot_device=auto
-ramdisk_compression=auto
-patch_vbmeta_flag=auto
+BLOCK=boot
+IS_SLOT_DEVICE=auto
+RAMDISK_COMPRESSION=auto
+PATCH_VBMETA_FLAG=auto
 
 # Import functions/variables and setup patching
 . tools/ak3-core.sh
@@ -543,8 +543,9 @@ print_build_info() {
 ## BAN BIEN THE: GKI (5.4 / 5.10 / 5.15 / 6.1+)
 ## Tuong minh: chi thay Image, giu nguyen dtbo / vendor_boot / vendor_dlkm
 ## Nguon: sinh tu anykernel3/anykernel.sh (template cua repo nay)
-##   => ten bien lay dung dang cua template: block= (chu thuong),
-##      khong doi thanh BLOCK= vi AK3 khac version la khac kieu bien.
+##   => vendor base 2026-09-04: ak3-core CHI nhan bien CHU HOA
+##      (BLOCK=, IS_SLOT_DEVICE=, RAMDISK_COMPRESSION=, PATCH_VBMETA_FLAG=);
+##      core 2024 moi co compat chu thuong — ban 2026 da bo han.
 ## ---------------------------------------------------------------
 
 ## ==============================================

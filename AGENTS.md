@@ -141,8 +141,12 @@ gh run view $ID --repo $R --job "$JOB" --log | \
 
 - `scripts/` là thư mục của **kernel**: không `git add` cả thư mục, chỉ đụng
   `package-ak3.sh`. Sparse-checkout của workflow dùng pattern **từng path**.
-- AK3 dùng biến `block=boot` (không phải `BLOCK=`); `devicecheck=0` và không điền
-  `device.name1` → zip flash được trên mọi máy GKI 5.10 tương thích (xem `DEVICES.md`).
+- AK3 vendor = base upstream **2026-09-04**; core mới **chỉ nhận biến CHU HOA**:
+  `BLOCK=boot` (tên phân vùng trần vẫn được), `IS_SLOT_DEVICE=auto`,
+  `RAMDISK_COMPRESSION=auto`, `PATCH_VBMETA_FLAG=auto` — compat chữ thường của core
+  2024 đã bị bỏ. `flash_dtbo` không còn → nongki dùng `flash_generic dtbo` (có fallback
+  nếu vẫn chạy core cũ). `devicecheck=0` và không điền `device.name1` → zip flash được
+  trên mọi máy GKI 5.10 tương thích (xem `DEVICES.md`).
 - Zip **không** đóng gói `dtbo.img` / `vendor_boot` / `vendor_dlkm` (giữ phân vùng zin).
 - ReSukiSU ≡ BakaSU (`ReSukiSU/ReSukiSU` redirect về `Baka-SU/BakaSU` — cùng repo).
 - Base Steambot12 có `CONFIG_MODVERSIONS=y` (khác bản #10 cũ = `n`); summary in giá trị

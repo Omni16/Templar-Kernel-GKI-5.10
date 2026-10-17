@@ -25,10 +25,10 @@ KERNEL_AUTHOR="Zyomi16"
 
 ### AnyKernel install
 ## Boot shell variables
-block=boot
-is_slot_device=auto
-ramdisk_compression=auto
-patch_vbmeta_flag=auto
+BLOCK=boot
+IS_SLOT_DEVICE=auto
+RAMDISK_COMPRESSION=auto
+PATCH_VBMETA_FLAG=auto
 
 # Import functions/variables and setup patching
 . tools/ak3-core.sh
@@ -543,8 +543,9 @@ print_build_info() {
 ## BAN BIEN THE: NON-GKI (3.10 / 3.18 / 4.4 / 4.9 / 4.14 / 4.19)
 ## Tuong minh: co tuy chon dtbo.img, chi flash neu file co trong zip
 ## Nguon: sinh tu anykernel3/anykernel.sh (template cua repo nay)
-##   => ten bien lay dung dang cua template: block= (chu thuong),
-##      khong doi thanh BLOCK= vi AK3 khac version la khac kieu bien.
+##   => vendor base 2026-09-04: ak3-core CHI nhan bien CHU HOA
+##      (BLOCK=, IS_SLOT_DEVICE=, RAMDISK_COMPRESSION=, PATCH_VBMETA_FLAG=);
+##      core 2024 moi co compat chu thuong — ban 2026 da bo han.
 ## ---------------------------------------------------------------
 
 ## ==============================================
@@ -555,9 +556,11 @@ nongki_optional_dtbo() {
     if [ -f "$home/dtbo.img" ]; then
         ui_print "→ Non-GKI: flash dtbo.img (file có trong zip)"
         if command -v flash_dtbo >/dev/null 2>&1; then
-            flash_dtbo
+            flash_dtbo; # compat core cu (2024)
+        elif command -v flash_generic >/dev/null 2>&1; then
+            flash_generic dtbo; # core 2026 (flash_dtbo da bo)
         else
-            ui_print "  ! flash_dtbo không có trong ak3-core.sh — bỏ qua"
+            ui_print "  ! kernel core khong co ham flash dtbo — bo qua"
             return 0
         fi
         ui_print "  ✓ dtbo flashed"
