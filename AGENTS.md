@@ -30,16 +30,23 @@ Nhánh làm việc: `Templar-LinuxStable` (mọi dispatch dùng nhánh này). Ng
 | Lịch sử build | `docs/build-history.md` |
 | Bảng thiết bị | `DEVICES.md` |
 
-## 2. Inputs workflow (16 input)
+## 2. Inputs workflow (18 input)
 
 `kernel_name` (→ `CONFIG_LOCALVERSION` + tên zip), `bakasu` (+`bakasu_branch`),
 `sukisu_ultra` (+`sukisu_branch`), `ksu_next` (+`ksu_next_branch`, `ksu_next_repo`),
-`agnesu` (+`agnesu_branch`), `kittisu` (+`kittisu_branch`), `multi_manager`,
-`enable_susfs` (+`susfs_branch`), `droidspaces`.
+`agnesu` (+`agnesu_branch`), `kittisu` (+`kittisu_branch`), `mambosu` (+`mambosu_branch`),
+`multi_manager`, `enable_susfs` (+`susfs_branch`), `droidspaces`.
 
 Luật tổ hợp (job `validate-inputs`, fail sớm + in lý do):
-- Tick nhiều root → build root ưu tiên: BakaSU > AgnesSU > KittiSU > SukiSU-Ultra > KSU-Next;
-  Multi Manager **bật tự động** (các driver KernelSU loại trừ nhau).
+- Tick nhiều root → build root ưu tiên: BakaSU > AgnesSU > KittiSU > SukiSU-Ultra > KSU-Next > MamboSU;
+  Multi Manager **bật tự động** (các driver KernelSU loại trừ nhau) — CHỈ khi root thắng là
+  BakaSU/AgnesSU/KittiSU; nếu root thắng là SukiSU-Ultra/KSU-Next/MamboSU (không có MM)
+  thì tự hạ `MM=false` + cảnh báo (trước đây bật MM sai → verify Build fail oan).
+- `mambosu` = `RapliVx/KernelSU` nhánh `xxksu` (MamboHook: syscall table + LSM; app
+  `com.rapli.mambosu`) — **không có KSU_SUSFS / MULTI_MANAGER_SUPPORT**: tick kèm SUSFS →
+  **FAIL sớm** ở validate. Build tự bật `CONFIG_KSU_TAMPER_SYSCALL_TABLE=y` + tắt
+  `CONFIG_KPROBES` (đúng README nhánh xxksu). Bước Build **FAIL cứng** nếu `out/.config`
+  thiếu `CONFIG_KSU_TAMPER_SYSCALL_TABLE=y`.
 - `enable_susfs=true` mà không tick root nào → **FAIL**.
   SukiSU-Ultra chỉ đi với SUSFS khi branch `builtin` (đã xác minh bằng grep thật).
 - Droidspaces + SUSFS: workflow cảnh báo phải tắt "HIDE SUS MOUNTS FOR ALL PROCESSES"
