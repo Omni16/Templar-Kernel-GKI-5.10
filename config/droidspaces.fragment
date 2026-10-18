@@ -93,26 +93,29 @@ CONFIG_TMPFS_POSIX_ACL=y
 CONFIG_TMPFS_XATTR=y
 
 # =============================================================================
-# TUYỆT ĐỐI KHÔNG BẬT TRÊN GKI (nguyên văn tài liệu, Step 2):
+# 18-10-2026 — ĐÃ BẬT theo yêu cầu (chấp nhận rủi ro kABI — xem commit kèm theo):
+#   Trước đây 2 option dưới bị GIỮ COMMENT để kABI-safe; nay bật để Droidspaces
+#   có đủ support `--cpus` / `--pids-limit` (2 toggle trong app trước bị xám).
+#   Dependency đã kiểm chứng trên .config thật (trích từ Image run 39111720191):
+#   CGROUP_SCHED=y, FAIR_GROUP_SCHED=y (default) → chỉ cần flip 2 option này.
 #
+# Rủi ro (nguyên văn tài liệu Droidspaces, Step 2):
 #   "Resource limits: --cpus and --pids-limit. CONFIG_MEMCG is already on in
 #    GKI. These two BREAK the kABI and no patch covers them: they resize
 #    scheduler and cgroup structures, which changes the CRC of thousands of
 #    exported symbols. Stock vendor modules then refuse to load and the device
 #    bootloops."
+#   Đo được trên cây GKI 5.15: bật 2 option này đổi CRC của 4101 symbol export,
+#   module stock báo "disagrees about version of symbol".
+#   => Hệ quả có thể gặp: module vendor stock không nạp được → mất chức năng
+#      hoặc bootloop. Quay lại kABI-safe: comment lại 2 dòng cuối file này
+#      (hoặc revert commit) — CI chỉ còn CẢNH BÁO khi thấy 2 option này =y.
 #
-# Đo được trên cây GKI 5.15: bật 2 option này đổi CRC của 4101 symbol export,
-# module stock báo "disagrees about version of symbol". Không có patch nào
-# che được vì field mới không vừa vùng kABI reserved.
 #   - `--cpus`      -> CONFIG_CFS_BANDWIDTH
 #   - `--pids-limit`-> CONFIG_CGROUP_PIDS
-# Không bật thì Droidspaces CHẠY ĐƯỢC, chỉ mất 2 tính năng (app xám 2 toggle).
-#
-# Dòng dưới đây GIỮ NGUYÊN dưới dạng comment. Bước CI có bước kiểm tra riêng:
-# nếu 2 config này =y trong out/.config -> build fail.
 # =============================================================================
-# CONFIG_CFS_BANDWIDTH=y
-# CONFIG_CGROUP_PIDS=y
+CONFIG_CFS_BANDWIDTH=y
+CONFIG_CGROUP_PIDS=y
 
 # =============================================================================
 # CẢNH BÁO SUSFS + DROIDSPACES (không nằm trong file cấu hình — nằm ở README):
