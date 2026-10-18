@@ -26,7 +26,7 @@ Nhánh làm việc: `Templar-LinuxStable` (mọi dispatch dùng nhánh này). Ng
 | AnyKernel3 (vendored) | `anykernel3/` |
 | Biến thể AK3 | `ak3/anykernel-gki.sh` (GKI), `ak3/anykernel-nongki.sh` |
 | Script đóng gói | `scripts/package-ak3.sh` ⚠️ nằm chung thư mục `scripts/` của kernel — xem §8 |
-| Droidspaces fragment | `config/droidspaces.fragment` (22 config; 2 option kABI-risk bật từ 18-10-2026 theo yêu cầu — xem §2) |
+| Droidspaces fragment | `config/droidspaces.fragment` (20 config, kABI-safe) |
 | Lịch sử build | `docs/build-history.md` |
 | Bảng thiết bị | `DEVICES.md` |
 
@@ -63,18 +63,8 @@ Bất biến (đừng phá):
   `include/linux/sched.h`) và POSIX_MQUEUE (`ANDROID_KABI_USE(1, unsigned long mq_bytes`
   trong `include/linux/sched/user.h`) **đã có sẵn trong cây Steambot12** → bước patch
   skip là ĐÚNG thiết kế (nếu tương lai thiếu, workflow tự áp 1 trong 3 biến thể
-  001/002 và fail rõ nếu không được). Sau đó verify đủ **22 config** fragment trong
+  001/002 và fail rõ nếu không được). Sau đó verify đủ **20 config** fragment trong
   `out/.config` trước khi đóng gói.
-- **kABI-risk (18-10-2026, theo yêu cầu — "thử liều"):** fragment đã bật
-  `CONFIG_CFS_BANDWIDTH=y` + `CONFIG_CGROUP_PIDS=y` cho `--cpus`/`--pids-limit` của
-  Droidspaces. 2 option này đổi CRC hàng nghìn symbol export (nguồn: tài liệu
-  Droidspaces — "BREAK the kABI and no patch covers them") → module vendor stock có
-  thể từ chối nạp → mất chức năng/bootloop. Gate CI tương ứng (step 7 `gki_defconfig`
-  + step 11 `out/.config`) chuyển thành **CẢNH BÁO** (không chặn build) — theo yêu
-  cầu, KHÔNG xóa phép kiểm tra. Dependency đã kiểm chứng trên `.config` thật của
-  Image run 39111720191: `CGROUP_SCHED=y`, `FAIR_GROUP_SCHED=y` — nên Kconfig sẽ
-  không drop 2 option này. Quay lại kABI-safe: comment 2 dòng cuối fragment (1 commit).
-  Fallback flash: artifact run 39111720191 (kABI-safe, đã boot xanh trên máy).
 - **SUSFS**: clone HEAD nhánh `gki-android12-5.10` của `simonpunk/susfs4ksu` (không pin
   commit); verify `CONFIG_KSU_SUSFS=y` trong `out/.config` (đã đo: patch `50_add` apply
   sạch trên cây này, 17-10, commit `ca7093a`).
@@ -131,10 +121,7 @@ gh run view $ID --repo $R --job "$JOB" --log | \
 
 ## 6. Cấm "sửa cho xanh"
 
-- Ngoại lệ đã chốt (18-10-2026): gate "2 option break kABI" (CFS_BANDWIDTH/CGROUP_PIDS)
-  ở step 7/11 là **CẢNH BÁO** theo yêu cầu user (xem §2) — không khôi phục thành FAIL
-  khi chưa có yêu cầu mới; muốn về kABI-safe thì comment 2 dòng cuối fragment.
-- Không bỏ / hạ ngưỡng: verify LTO full, verify 22 config Droidspaces, verify
+- Không bỏ / hạ ngưỡng: verify LTO full, verify 20 config Droidspaces, verify
   `CONFIG_KSU_SUSFS=y` + `CONFIG_KSU_MULTI_MANAGER_SUPPORT=y`, `git apply --check` kABI,
   verify zip (`if-no-files-found: error` giữ nguyên).
 - Không xóa input/fragment/chức năng chỉ vì nó đang gây lỗi — sửa nguyên nhân gốc.
