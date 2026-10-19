@@ -64,9 +64,11 @@ fragment **22/22** (20 kABI-safe + `CFS_BANDWIDTH` + `CGROUP_PIDS`) · `BUILD_AR
 - **Nguồn v2**: dump stock máy user — `vendor_boot.img` (ramdisk, VNDRBOOT v4) +
   `vendor_dlkm_a.img` (EROFS slot a) — đối chiếu với **371 .ko build thật** của run
   `39222558504` (trích dòng `LD [M]` từ log). Stock: vb 356 / vd 312 module.
-- **Ship v2**: vendor_boot **314**, vendor_dlkm **265** (stock ∩ buildable + 4 module riêng
+- **Ship v2**: vendor_boot **315**, vendor_dlkm **265** (stock ∩ buildable + 4 module riêng
   `hdcp`, `vh_fs`, `kshrink_slabd`, `kshrink_lruvecd`). Phân vùng theo stock:
-  `cfg80211`/`mac80211` → vendor_boot, `xiaomi_touch` → vendor_dlkm (v1 để khác).
+  `cfg80211`/`mac80211` → vendor_boot; riêng `xiaomi_touch.ko` ship **cả 2 phía** vì
+  `goodix_core.ko` (vendor_boot + `modules.load.recovery`) import 6 symbol của nó — pass
+  simulate recovery chỉ đọc thư mục vendor_boot (v1 cũng ship both).
 - **known-missing.txt**: 56 tên stock có mà cây Melt không build (touch IC khác, coresight/stm,
   `millet_*`, MIUI framework…) — WARN trong log, không FAIL; lý do nhóm ghi trong file.
 - Rename duy nhất: `qca6490.ko → qca_cld3_qca6490.ko` (profile `CONFIG_QCA_CLD_WLAN_PROFILE="qca6490"`;
@@ -78,7 +80,7 @@ fragment **22/22** (20 kABI-safe + `CFS_BANDWIDTH` + `CGROUP_PIDS`) · `BUILD_AR
 
 ## Giới hạn v1 (đọc trước khi flash)
 
-1. **Lists v2 đã đối chiếu dump stock máy thật** (19-10): vb 356 / vd 312 → ship 314/265;
+1. **Lists v2 đã đối chiếu dump stock máy thật** (19-10): vb 356 / vd 312 → ship 315/265;
    phần không ship được = 56 tên trong `known-missing.txt` (cây Melt không build). Đây là gap
    chấp nhận, có WARN chi tiết trong build log — không phải lỗi boot (load lists đã lọc khớp
    bộ ship; `simulate_load_kernel_modules` của Pzqqt kiểm tra trước khi đóng gói).

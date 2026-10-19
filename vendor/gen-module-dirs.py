@@ -16,7 +16,7 @@ Ví dụ:
 Quy ước (chốt 19-10-2026, đối chiếu build_bouquet.sh dòng 572-582):
   * Danh sách ghi basename; bỏ dòng trống / dòng bắt đầu bằng '#'.
   * Rename DUY NHẤT (theo build_bouquet.sh): qca6490.ko -> qca_cld3_qca6490.ko.
-  * bộ vendor_boot = both ∪ vendor_boot   (v2/dump-stock: 314 .ko ship)
+  * bộ vendor_boot = both ∪ vendor_boot   (v2/dump-stock: 315 .ko ship)
   * bộ vendor_dlkm = both ∪ vendor_dlkm   (v2/dump-stock: 265 .ko ship)
   * Module không build được:
       - có trong known-missing.txt -> WARN (chấp nhận thiếu)

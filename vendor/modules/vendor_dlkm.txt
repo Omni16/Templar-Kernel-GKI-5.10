@@ -70,4 +70,3 @@ wcd9xxx_dlkm.ko
 wcd_core_dlkm.ko
 wsa881x_dlkm.ko
 wsa883x_dlkm.ko
-xiaomi_touch.ko

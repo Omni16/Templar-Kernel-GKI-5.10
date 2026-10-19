@@ -249,6 +249,7 @@ usb_f_qdss.ko
 videocc-diwali.ko
 videocc-waipio.ko
 wlan_firmware_service.ko
+xiaomi_touch.ko
 xiaomifp.ko
 xlogchar.ko
 zram.ko
