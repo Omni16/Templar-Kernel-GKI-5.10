@@ -119,7 +119,7 @@ jobs:
           echo "| AK3 | Pzqqt/AnyKernel3 Marble-Melt \`${AK3_REF:0:12}\` |"
           echo "| root | BakaSU \`$BAKASU_REF\` (\`${BAKASU_SHA:0:12}\`) |"
           echo "| SUSFS | \`$SUSFS_BRANCH\` @ \`$SUSFS_SHA_PREFIX\` |"
-          echo "| config | defconfig Melt (m4lg) + fragment 22 muc (20 kABI-safe + CFS_BANDWIDTH + CGROUP_PIDS) + LTO clang FULL + BUILD_ARM64_DT_OVERLAY |"
+          echo "| config | defconfig Melt (m4lg) + fragment 22 muc (20 kABI-safe + CFS_BANDWIDTH + CGROUP_PIDS) + LTO clang FULL + BUILD_ARM64_DT_OVERLAY + va goodix (container_of FULL-LTO) |"
           echo "| ROM ho tro | HyperOS/MIUI stock (marble) — flash dong bo boot + vendor_boot + vendor_dlkm + dtbo |"
         } >> "$GITHUB_STEP_SUMMARY"
     - name: Checkout CI scripts (vendor/)
@@ -134,7 +134,9 @@ jobs:
         set -euo pipefail
         for f in vendor/build-zyomi-vendor.sh vendor/ak3-patch.py vendor/gen-module-dirs.py \
                  vendor/droidspaces-vendor.fragment vendor/banner \
-                 vendor/marble-melt_defconfig vendor/modules/both.txt \
+                 vendor/marble-melt_defconfig \
+                 vendor/patches/goodix-9916r-fix-gesture-container-of.patch \
+                 vendor/modules/both.txt \
                  vendor/modules/vendor_boot.txt vendor/modules/vendor_dlkm.txt \
                  vendor/modules/known-missing.txt \
                  vendor/modules/load/vendor_boot.modules.load \

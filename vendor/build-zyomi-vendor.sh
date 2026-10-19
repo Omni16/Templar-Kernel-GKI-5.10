@@ -121,6 +121,24 @@ git apply "$PATCH_FILE"
 [ -f fs/susfs.c ] || die "susfs.c chưa vào cây sau khi patch"
 echo "[i] SUSFS: $(git -C "$SUSFS_DIR" rev-parse --short HEAD 2>/dev/null || echo '???')"
 
+# ---------- 2b) Vá driver goodix (bắt buộc cho LTO FULL) ----------
+log "2b/8 Vá goodix_ts_core.c (container_of gesture_work — type mismatch làm link LTO full fail)"
+GOODIX_FIX="$VENDOR_DIR/patches/goodix-9916r-fix-gesture-container-of.patch"
+[ -f "$GOODIX_FIX" ] || die "thiếu patch vá goodix: $GOODIX_FIX"
+GOODIX_SRC="drivers/input/touchscreen/goodix_9916r/goodix_ts_core.c"
+# Variant MIUI (CONFIG_TOUCHSCREEN_XIAOMI_TOUCHFEATURE): container_of(work, …) trỏ vào member
+# 'gesture_work' kiểu delayed_work -> check container_of() của kernel bung thành ld.lld
+# "dontcall-error: pointer type mismatch in container_of()" khi clang codegen LTO FULL cho
+# module goodix_core (run 39216833751). Sửa đúng theo pattern bản LOS trong cùng file
+# (to_delayed_work) — runtime không đổi vì work_struct là member đầu của delayed_work.
+git apply --check "$GOODIX_FIX" || die "patch vá goodix không áp được sạch (cây lệch pin?)"
+git apply "$GOODIX_FIX"
+grep -q 'container_of(dwork, struct goodix_ts_core, gesture_work);' "$GOODIX_SRC" \
+    || die "vá goodix chưa hiệu lực (không thấy container_of(dwork, …))"
+if grep -q 'container_of(work, struct goodix_ts_core, gesture_work);' "$GOODIX_SRC"; then
+    die "vá goodix chưa hiệu lực (vẫn còn container_of(work, …))"
+fi
+
 # ---------- 3) defconfig edits ----------
 log "3/8 Nạp defconfig Melt + sửa (LOCALVERSION, LTO full, DT_OVERLAY)"
 MELT_DEFCONFIG="$VENDOR_DIR/marble-melt_defconfig"

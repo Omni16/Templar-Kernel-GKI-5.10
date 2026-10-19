@@ -1,0 +1,15 @@
+diff --git a/drivers/input/touchscreen/goodix_9916r/goodix_ts_core.c b/drivers/input/touchscreen/goodix_9916r/goodix_ts_core.c
+index a20d27e..1d608cc 100644
+--- a/drivers/input/touchscreen/goodix_9916r/goodix_ts_core.c
++++ b/drivers/input/touchscreen/goodix_9916r/goodix_ts_core.c
+@@ -2933,8 +2933,9 @@ static struct xiaomi_touch_interface xiaomi_touch_interfaces;
+  */
+ static void goodix_set_gesture_work(struct work_struct *work)
+ {
++	struct delayed_work *dwork = to_delayed_work(work);
+ 	struct goodix_ts_core *core_data =
+-		container_of(work, struct goodix_ts_core, gesture_work);
++		container_of(dwork, struct goodix_ts_core, gesture_work);
+ 	ts_debug("double is 0x%x", core_data->double_wakeup);
+ 	ts_debug("aod is 0x%x", core_data->aod_status);
+ 	ts_debug("fod is 0x%x", core_data->fod_status);

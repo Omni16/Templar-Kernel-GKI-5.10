@@ -20,6 +20,7 @@ Pipeline CI: `.github/workflows/Zyomi-vendor.yml` (job "Build Vendor"). Khác wo
 | AnyKernel3 | `Pzqqt/AnyKernel3` @ `699488a82672b6957bc48dc52ed0c43b3546c7c5` (nhánh `Marble-Melt`) | patch bằng `vendor/ak3-patch.py` (assert từng vị trí — lệch là fail) |
 | Root | BakaSU `v4.2.0-rc3` @ `239e1e8871b8fcd51a6e5b3002e0ba522fdd99fb` | bake vào Image (`drivers/kernelsu`) |
 | SUSFS | `simonpunk/susfs4ksu` nhánh `gki-android12-5.10` @ `31eb14add587` (**pin cứng** — workflow `git checkout` đúng commit, không dùng tip) | chỉ patch `50_add_…` + copy `kernel_patches/{fs,include/linux}`. Lý do pin: từ upstream `5a3af83e` ("Sync with official KernelSU main repo") patch 50_add gọi `ksu_preinit_*` của KernelSU main — BakaSU rc3 không định nghĩa → link vmlinux fail undefined symbol (run 39210253573); guard trong workflow fail sớm nếu vi phạm |
+| Vá driver goodix | `vendor/patches/goodix-9916r-fix-gesture-container-of.patch` | `goodix_ts_core.c` variant MIUI (`XIAOMI_TOUCHFEATURE`): `container_of(work, …)` trỏ vào member `delayed_work` → check `container_of()` của kernel bung thành ld.lld `dontcall-error` khi codegen LTO FULL module `goodix_core` (run 39216833751). Sửa đúng theo pattern bản LOS trong cùng file (`to_delayed_work`) — runtime không đổi (work_struct là member đầu của delayed_work) |
 | Toolchain | Slim LLVM `llvm-23.1.3-x86_64` + `7za` 26.03 | cache theo key; KHÔNG dùng llvm của apt |
 
 Lưu ý quan trọng: mọi nhánh Melt thuần (`melt`, `melt-rebase*`, tag `Melt-marble-v5.2`) **không có**
@@ -37,10 +38,10 @@ Lưu ý quan trọng: mọi nhánh Melt thuần (`melt`, `melt-rebase*`, tag `Me
    `avbtool/fdtget/fdtput/merge_dtbs.py/mkdtboimg.py` phải có trên PATH.
 6. Clone BakaSU (verify sha) + SUSFS + AK3 (verify sha) → patch AK3 (rebrand Zyomi16; bỏ prompt
    KSU-patch/360Hz/real-battery/zram-MI/GPU/ntsync; chặn ROM non-MIUI; tên zip).
-7. Build (`vendor/build-zyomi-vendor.sh`): BakaSU → SUSFS → nạp defconfig Melt →
-   LOCALVERSION/LTO-full/DT_OVERLAY → fragment 22 config + KSU/MM/SUSFS configs →
-   verify `out/.config` (**fail cứng** nếu thiếu bất kỳ mục nào) → `make` LTO full →
-   Image + symvers + modules (strip) + devicetree (merge_dtbs + mkdtboimg + avbtool).
+7. Build (`vendor/build-zyomi-vendor.sh`): BakaSU → SUSFS → vá `goodix_ts_core.c` (container_of
+   cho LTO full) → nạp defconfig Melt → LOCALVERSION/LTO-full/DT_OVERLAY → fragment 22 config +
+   KSU/MM/SUSFS configs → verify `out/.config` (**fail cứng** nếu thiếu bất kỳ mục nào) →
+   `make` LTO full → Image + symvers + modules (strip) + devicetree (merge_dtbs + mkdtboimg + avbtool).
 8. Package AK3: `modify_dtb_and_dtboimg.sh` (dtb + dtbo-0/1) → nhét modules + Image →
    `make_package.py` (depmod_regen + simulate_load + 7z + nhúng sha1 Image).
 9. Verify zip (đủ mục; placeholder SHA1 đã thay; kernel.string đúng; uname đúng trong Image)
