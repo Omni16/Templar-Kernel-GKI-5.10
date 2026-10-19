@@ -58,7 +58,7 @@ on:
         type: string
         default: gki-android12-5.10
       susfs_sha_prefix:
-        description: "Tien to commit SUSFS mong doi (canh bao neu tip da doi)."
+        description: "Tien to commit SUSFS BAT BUOC — build checkout dung commit nay (khong dung tip). Xem vendor/README.md."
         required: false
         type: string
         default: 31eb14add587
@@ -306,26 +306,37 @@ jobs:
         grep -qE '^config KSU_SUSFS$' BakaSU/kernel/Kconfig \
           || { echo "::error::BakaSU khong co config KSU_SUSFS"; exit 1; }
         echo "[i] BakaSU OK: $BAKASU_REF @ $SHA"
-    - name: Clone SUSFS (simonpunk/susfs4ksu)
+    - name: Clone SUSFS (simonpunk/susfs4ksu) @ pin
       run: |
         set -euo pipefail
         cd "$HOME"
         ok=""
         for i in 1 2 3; do
           rm -rf susfs4ksu
-          if git clone -q --depth=1 --branch "$SUSFS_BRANCH" "$SUSFS_REPO" susfs4ksu; then ok=1; break; fi
+          # clone full (khong --depth) de checkout duoc commit pin trong lich su nhanh
+          if git clone -q --branch "$SUSFS_BRANCH" "$SUSFS_REPO" susfs4ksu; then ok=1; break; fi
           echo "[!] clone susfs4ksu lan $i loi — thu lai sau 10s"
           sleep 10
         done
         [ -n "$ok" ] || { echo "::error::khong clone duoc susfs4ksu ($SUSFS_BRANCH)"; exit 1; }
+        # HARD PIN (khong dung tip): tu 5a3af83e ("Sync with official KernelSU main repo"),
+        # patch 50_add goi ksu_setup_preinit_file/ksu_preinit_handle_post_execveat (preinit
+        # cua KernelSU main). BakaSU v4.2.0-rc3 khong dinh nghia 2 ham nay -> ld.lld
+        # "undefined symbol" o buoc link vmlinux (run 39210253573). Pin ve commit truoc do.
+        git -C susfs4ksu checkout -q --detach "$SUSFS_SHA_PREFIX" \
+          || { echo "::error::khong checkout duoc pin $SUSFS_SHA_PREFIX (khong ton tai/khong duy nhat?)"; exit 1; }
         SHA=$(git -C susfs4ksu rev-parse HEAD)
-        echo "[i] SUSFS tip: $SHA"
         case "$SHA" in
-          "$SUSFS_SHA_PREFIX"*) echo "[i] SUSFS khop tien to pin $SUSFS_SHA_PREFIX" ;;
-          *) echo "::warning::SUSFS tip $SHA KHONG khop tien to pin $SUSFS_SHA_PREFIX — build tiep, patch se duoc kiem tra that" ;;
+          "$SUSFS_SHA_PREFIX"*) echo "[i] SUSFS pin OK: $SHA" ;;
+          *) echo "::error::SUSFS pin $SUSFS_SHA_PREFIX resolve thanh $SHA — khong khop"; exit 1 ;;
         esac
-        [ -f susfs4ksu/kernel_patches/50_add_susfs_in_gki-android12-5.10.patch ] \
-          || { echo "::error::thieu patch 50_add_susfs_in_gki-android12-5.10.patch"; exit 1; }
+        PATCH=susfs4ksu/kernel_patches/50_add_susfs_in_gki-android12-5.10.patch
+        [ -f "$PATCH" ] || { echo "::error::thieu patch 50_add_susfs_in_gki-android12-5.10.patch"; exit 1; }
+        # Chan som: root (BakaSU) khong co preinit thi patch SUSFS cung khong duoc goi 2 ham do.
+        if ! grep -rqs "ksu_preinit_handle_post_execveat" "$HOME/BakaSU/kernel" "$HOME/BakaSU/uapi" 2>/dev/null \
+           && grep -qs "ksu_preinit_handle_post_execveat\|ksu_setup_preinit_file" "$PATCH"; then
+          echo "::error::SUSFS $SHA goi ksu_preinit_* nhung BakaSU ($BAKASU_REF) khong ho tro — chon pin truoc 5a3af83e"; exit 1
+        fi
     - name: Clone AK3 (Pzqqt/AnyKernel3 @ ak3_ref)
       run: |
         set -euo pipefail
