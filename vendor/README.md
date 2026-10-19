@@ -59,26 +59,29 @@ Lưu ý quan trọng: mọi nhánh Melt thuần (`melt`, `melt-rebase*`, tag `Me
 fragment **22/22** (20 kABI-safe + `CFS_BANDWIDTH` + `CGROUP_PIDS`) · `BUILD_ARM64_DT_OVERLAY=y` ·
 `UNAME_OVERRIDE` OFF (xung đột `KSU_SUSFS_SPOOF_UNAME`) · `LOCALVERSION="-Zyomi16"`.
 
-## Module lists (vendor/modules/)
+## Module lists (vendor/modules/) — v2 (19-10-2026)
 
-- Nguồn: **copy basename từ `build_bouquet.sh`@44b755a** (`both_need_modules` 199 +
-  `vendor_boot_need_modules` 100 + `vendor_dlkm_need_modules` 56 → ship 299/255), GIỮ rename
-  duy nhất `qca6490.ko → qca_cld3_qca6490.ko`.
-- Đã đối chiếu 1:1 với zip thật `Bouquet-Kernel-v5.2.zip`: vb 298/299 (lệch duy nhất
-  `kshrink_lruvecd.ko` — bản ta có vì defconfig Melt bật `KSHRINK_LRUVECD=m`), vd 255/255.
-- `known-missing.txt`: `cpq.ko` (config `CPQ_IOSCHED` chỉ có ở dòng Bouquet) — WARN, chấp nhận.
-- `load/`: `modules.load` (+ `.recovery`, `.blocklist`, `.options`) — lấy từ zip thật;
-  `gen-module-dirs.py` **lọc theo bộ ship** (giữ nguyên thứ tự gốc, không append).
+- **Nguồn v2**: dump stock máy user — `vendor_boot.img` (ramdisk, VNDRBOOT v4) +
+  `vendor_dlkm_a.img` (EROFS slot a) — đối chiếu với **371 .ko build thật** của run
+  `39222558504` (trích dòng `LD [M]` từ log). Stock: vb 356 / vd 312 module.
+- **Ship v2**: vendor_boot **314**, vendor_dlkm **265** (stock ∩ buildable + 4 module riêng
+  `hdcp`, `vh_fs`, `kshrink_slabd`, `kshrink_lruvecd`). Phân vùng theo stock:
+  `cfg80211`/`mac80211` → vendor_boot, `xiaomi_touch` → vendor_dlkm (v1 để khác).
+- **known-missing.txt**: 56 tên stock có mà cây Melt không build (touch IC khác, coresight/stm,
+  `millet_*`, MIUI framework…) — WARN trong log, không FAIL; lý do nhóm ghi trong file.
+- Rename duy nhất: `qca6490.ko → qca_cld3_qca6490.ko` (profile `CONFIG_QCA_CLD_WLAN_PROFILE="qca6490"`;
+  stock còn ship `qca_cld3_qca6750.ko` — không build được từ cây). Không ship dù build được:
+  `ntsync.ko` (cố ý bỏ), `cs35l41_dlkm.ko` (stock không có).
+- **load/ v2**: thứ tự **theo stock** từng phân vùng, lọc theo bộ ship; entry riêng của ta
+  (`hdcp`, `vh_fs`, `kshrink_*`) chèn lại đúng vị trí tương đối v1; `kshrink_lruvecd.ko`
+  nay **có** entry (v1 thiếu). `blocklist`/`options` giữ nguyên (đã khớp stock).
 
 ## Giới hạn v1 (đọc trước khi flash)
 
-1. **Lists chưa đối chiếu dump stock máy thật.** Bộ v1 = lists dòng Bouquet; các module MIUI mà
-   defconfig Melt build nhưng list không có (vd `binder_prio`, `extend_reclaim`, `xlogchar`,
-   `mi_cnss_statistic`, `millet_*`…) sẽ **không được ship**. AK3 wipe module stock ở cả
-   vendor_boot lẫn vendor_dlkm rồi thay bằng bộ của ta ⇒ tính năng MIUI dùng module đó sẽ thiếu
-   (không phải lỗi boot — load lists của ta cũng đã lọc theo bộ ship, boot vẫn nhất quán).
-   **v2**: tạo lại lists + load lists từ dump `vendor_boot.img` + `vendor_dlkm` của chính máy,
-   so khớp 1:1 rồi mới khuyến nghị flash thật.
+1. **Lists v2 đã đối chiếu dump stock máy thật** (19-10): vb 356 / vd 312 → ship 314/265;
+   phần không ship được = 56 tên trong `known-missing.txt` (cây Melt không build). Đây là gap
+   chấp nhận, có WARN chi tiết trong build log — không phải lỗi boot (load lists đã lọc khớp
+   bộ ship; `simulate_load_kernel_modules` của Pzqqt kiểm tra trước khi đóng gói).
 2. **zram/zsmalloc = bản OSS dựng từ cây.** AK3 gốc cho chọn bản MI-zram/MI-zsmalloc prebuilt
    của Pzqqt (pipeline riêng, không tái tạo được từ nguồn công khai) — v1 dùng bản build từ tree
    (đúng "OSS variant" nằm trong danh sách lựa chọn của AK3 gốc). Trên MIUI có thể thiếu phần
@@ -104,10 +107,10 @@ gh run watch $ID --repo $R
 
 Build ~60–120 phút (LTO full + dts vendor + module strip). Artifact giữ **15 ngày**.
 
-## V2 plan (khi có stock)
+## Đối chiếu v2 — provenance (đã thực hiện 19-10-2026)
 
-1. Dump từ máy/user: `vendor_boot.img` (từ ROM zip) + `vendor_dlkm.img` (dd phân vùng).
-2. Liệt kê module 2 phía → so với bộ build; bổ sung module MIUI còn thiếu vào
-   `both.txt`/`vendor_boot.txt`/`vendor_dlkm.txt` + thêm entry vào load lists (đúng vị trí/thứ tự
-   stock); cân nhắc `_alt` entries.
-3. Đối chiếu 1:1 tên + load lists 2 phía trước khi khuyến nghị flash thật.
+1. Dump từ máy: `vendor_boot.img` (ramdisk `lz4_legacy`) + `vendor_dlkm_a.img` (EROFS slot a).
+2. Trích: `tools/extract.erofs` + `magiskboot unpack` + `busybox cpio` (AK3 tools aarch64);
+   inventory bộ ta = dòng `LD [M]` trong log run `39222558504` (371 .ko).
+3. Sinh lại 3 list + `known-missing.txt` + load baseline; dry-run `gen-module-dirs.py` local:
+   0 tên load bị bỏ, 0 module ship thiếu entry load (v1 lệch `kshrink_lruvecd`).
