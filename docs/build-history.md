@@ -5,8 +5,9 @@
 
 # Build history
 
-Nhật ký build của `Zyomi-kernel.yml`. **Mỗi lần build thành công ghi
-đúng MỘT DÒNG** ở đầu bảng (mới nhất lên trên). Không xóa dòng cũ.
+Nhật ký build của `Zyomi-kernel.yml` (từ 19-10 ghi thêm cả `Zyomi-vendor.yml` — các dòng
+có nhãn **VENDOR**). **Mỗi lần build thành công ghi đúng MỘT DÒNG** ở đầu bảng (mới nhất
+lên trên). Không xóa dòng cũ.
 
 Cột:
 
@@ -28,6 +29,7 @@ Cột:
 ## Bảng
 | Ngày | Run | Nhánh | Phiên bản | Root | SUSFS | Droidspaces | Zip | Trạng thái | Ghi chú |
 |---|---|---|---|---|---|---|---|---|---|
+| 2026-10-19 15:28 | [39222558504](https://github.com/Omni16/Templar-Kernel-GKI-5.10/actions/runs/39222558504) | Templar-LinuxStable | 5.10.272 | BakaSU + MultiMgr | on (`gki-android12-5.10@31eb14ad`) | on (**VENDOR**: +CFS_BANDWIDTH +CGROUP_PIDS) | Zyomi16-5.10.272-Vendor-BakaSU+SUSFS+MultiMgr+Droidspace-20261019_1528.zip | ✅ build OK | **VENDOR — build đầu tiên XANH (boot + vendor_boot + vendor_dlkm + dtbo).** Cây `Pzqqt/android_kernel_xiaomi_marble` @ `44b755a48379` (nhánh `bouquet_ci`, defconfig Melt); LTO full; vá 1 dòng `goodix_ts_core.c` (`container_of` gesture_work — run #3 39216833751 chết ở link module vì check `container_of()` bung dưới LTO full; xem `vendor/README.md`). Verify `out/.config`: 22/22 Droidspaces (gồm 2 option BREAK kABI), `LTO_CLANG(_FULL)`, CFI, MODVERSIONS, KSU+MM+SUSFS. Ship **298 module vendor_boot + 254 vendor_dlkm**; `goodix_core.ko` 311184 B, vermagic `5.10.272-Zyomi16-44b755a48379`; `dtbo-0/1` + dtb; AK3 `699488a` rebrand Zyomi16. sha256 `6c2a3746d098f88b71a39db730eadb934450b59d3b25a934e0176616300c1511`. **Chưa flash** — module lists v1 chưa đối chiếu dump stock (`vendor_boot.img` + `vendor_dlkm`) để lên v2 trước khi khuyến nghị flash thật. |
 | 2026-10-18 18:12 | [39120819942](https://github.com/Omni16/Templar-Kernel-GKI-5.10/actions/runs/39120819942) | Templar-LinuxStable | 5.10.271 | BakaSU + MultiMgr | on (`gki-android12-5.10@c06d5f8e`) | on (thử nghiệm: +CFS_BANDWIDTH +CGROUP_PIDS) | Zyomi16-5.10.271-Templar-LinuxStable-BakaSU+SUSFS+MultiMgr+Droidspace-20261018_1812.zip | 📱 bootloop | **Thực nghiệm kABI có kiểm soát — kết quả: bootloop trên máy.** Fragment 20→22 config để thử `--cpus`/`--pids-limit` Droidspaces; `.config` trong Image xác nhận 2 option `=y`. Máy bootloop (logo lên/tắt lặp) → đúng tài liệu: máy stock từ chối 2 option kABI-break. Đã revert `02b4a93`. Workflow: `71e2d58`. |
 | 2026-10-18 16:02 | [39111720191](https://github.com/Omni16/Templar-Kernel-GKI-5.10/actions/runs/39111720191) | Templar-LinuxStable | 5.10.271 | BakaSU + MultiMgr | on (`gki-android12-5.10@c06d5f8e`) | on (kABI-safe) | Zyomi16-5.10.271-Templar-LinuxStable-BakaSU+SUSFS+MultiMgr+Droidspace-20261018_1602.zip | 📱 flash OK | **Bản chuẩn đang dùng (đã flash, boot xanh trên máy).** Fragment đúng 20 config kABI-safe. Workflow: `86a5233d3`. |
 | 2026-10-10 17:37 | [38045513804](https://github.com/Omni16/Templar-Kernel-GKI-5.10/actions/runs/38045513804) | Templar-LinuxStable | 5.10.271 | BakaSU + MultiMgr | on (`9892175`) | off | — | ❌ | **Build bi HUY theo yeu cau, nhung da chung minh duoc phan quan trong cua viec gop job.** Tieu de run gio chi la `Build Templar Kernel` (da xoa `run-name`). Buoc `Validate inputs` *(step hop nhat tu job rieng)* = success, va **6 cho output** sang `Clone Kernel Source` (V_NAME/V_ROOT/V_MM/V_SUSFS/V_DROID/V_LABEL) da nhan dung gia tri — chung minh cu phap `steps.resolve.outputs.*` hoat dong. `Integrate Root Solution` + `Integrate SUSFS` cung xanh. Bi huy luc dang o `Build Kernel Image` -> **khong co zip, khong co artifact.** **4 cho output CHUA duoc chay that**: 3 cho o `Package AK3` (V_NAME/V_LABEL/V_WARNINGS) va 1 cho o `Generate Build Summary` (V_WARNINGS). |
