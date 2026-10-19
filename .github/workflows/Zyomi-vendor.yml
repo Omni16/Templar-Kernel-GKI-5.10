@@ -156,13 +156,14 @@ jobs:
         large-packages: true
         docker-images: true
         swap-storage: false
-    - name: Configure 10GB swap
+    - name: Configure 40GB swap
       run: |
-        echo "[*] Setting up 10GB swap to prevent OOM..."
-        sudo fallocate -l 10G /swapfile_10g || sudo dd if=/dev/zero of=/swapfile_10g bs=1M count=10240
-        sudo chmod 600 /swapfile_10g
-        sudo mkswap /swapfile_10g
-        sudo swapon /swapfile_10g
+        echo "[*] Setting up 40GB swap to prevent OOM (LTO full tren cay vendor can >25GB)..."
+        sudo fallocate -l 40G /swapfile_40g || sudo dd if=/dev/zero of=/swapfile_40g bs=1M count=40960
+        sudo chmod 600 /swapfile_40g
+        sudo mkswap /swapfile_40g
+        sudo swapon /swapfile_40g
+        sudo sysctl -w vm.swappiness=100
         free -h
         df -h /
     - name: Install build dependencies
@@ -378,6 +379,12 @@ jobs:
       run: |
         set -euo pipefail
         export PATH="$HOME/build_toolchain/llvm-23.1.3-x86_64/bin:$HOME/tooling:$HOME/.local/bin:$PATH"
+        # Ghi mau bo nho (RAM/swap/top RSS) moi 15s — chan doan OOM o buoc LTO vmlinux.o
+        # (doc o buoc "Dump chan doan khi fail" — file /tmp/memlog.txt song sot qua buoc)
+        ( while :; do
+            { echo "### $(date -u +%F_%T)"; free -m | sed -n '2,3p'; ps -eo rss,comm --sort=-rss | head -n 4; } >> /tmp/memlog.txt 2>&1 || true
+            sleep 15
+          done ) &
         clang --version | head -n 1
         bash "$VENDOR_DIR/build-zyomi-vendor.sh"
     - name: Package flashable zip (AnyKernel3)
@@ -473,3 +480,18 @@ jobs:
         path: ${{ github.workspace }}/out_release/
         if-no-files-found: error
         retention-days: 15
+    - name: Dump chan doan khi fail (mem/dmesg/disk)
+      if: failure()
+      run: |
+        set -uo pipefail
+        echo "===== free -m ====="; free -m || true
+        echo "===== swapon --show ====="; swapon --show || true
+        echo "===== /proc/pressure (cpu/mem/io) ====="; cat /proc/pressure/cpu /proc/pressure/memory /proc/pressure/io 2>/dev/null || true
+        echo "===== memlog tail 80 ====="; tail -n 80 /tmp/memlog.txt 2>/dev/null || echo "(khong co /tmp/memlog.txt)"
+        echo "===== cgroup memory.events ====="; cat /sys/fs/cgroup/memory.events 2>/dev/null || true
+        echo "===== dmesg: oom/kill (tail 40) ====="; sudo dmesg -T 2>/dev/null | grep -aiE "oom|killed|out of memory|cannot allocate" | tail -n 40 || true
+        echo "===== dmesg tail 40 ====="; sudo dmesg -T 2>/dev/null | tail -n 40 || true
+        echo "===== journalctl -k 90 phut cuoi (tail 40) ====="; sudo journalctl -k --no-pager --since "90 min ago" 2>/dev/null | tail -n 40 || true
+        echo "===== journalctl systemd-oomd ====="; sudo journalctl -u systemd-oomd --no-pager 2>/dev/null | tail -n 20 || true
+        echo "===== build.log tail 60 ====="; tail -n 60 /home/runner/zyomi_out/build.log 2>/dev/null || echo "(khong co build.log)"
+        echo "===== df -h / ====="; df -h / || true
