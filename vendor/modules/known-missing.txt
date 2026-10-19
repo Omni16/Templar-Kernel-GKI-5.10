@@ -1,0 +1,3 @@
+# Module nam trong danh sach nhung KHONG duoc build boi cau hinh Melt (chap nhan thieu, co WARN trong log).
+# Moi dong khac dong comment = 1 basename.
+cpq.ko  # CONFIG_CPQ_IOSCHED chi co trong dong Bouquet, khong co trong cau hinh Melt

@@ -1,0 +1,43 @@
+# =============================================================================
+# vendor/droidspaces-vendor.fragment — Cấu hình kernel cho Droidspaces (bản VENDOR)
+#
+# 22 config = 20 config kABI-safe + 2 option BREAK kABI (CFS_BANDWIDTH, CGROUP_PIDS).
+#
+# Nguồn 20 config gốc: Documentation/Kernel-Configuration.md (ravindu644/Droidspaces-OSS)
+#   Commit : 746a9e1e1fc738e31256244c91d76bbe54b91fd7
+#            (giống hệt config/droidspaces.fragment bản GKI — không tự suy diễn thêm)
+#
+# KHÁC BIỆT SO VỚI BẢN GKI (cố ý, có thực nghiệm):
+#   - Bản GKI (chỉ flash `boot`) KHÔNG được bật CFS_BANDWIDTH/CGROUP_PIDS:
+#     đã test thật 18-10-2026 (run 39120819942, commit 71e2d58) → BOOTLOOP,
+#     vì module stock trên vendor_dlkm/vendor_boot lệch CRC so với Image.
+#   - Bản VENDOR (flash `boot` + `vendor_boot` + `vendor_dlkm` cùng lúc) ĐƯỢC PHÉP:
+#     Image và toàn bộ module được build từ CÙNG một cây/cấu hình → CRC khớp.
+#     Điều kiện tiên quyết: chỉ flash bộ 3 ảnh cùng nhau, KHÔNG trộn với bản GKI.
+#
+# CI đọc file này như danh sách nguồn: so từng option vào marble_defconfig
+# (tìm dòng có sẵn → sửa; không có → thêm cuối) rồi VERIFY đủ 22/22 trong out/.config.
+# =============================================================================
+CONFIG_SYSVIPC=y
+CONFIG_POSIX_MQUEUE=y
+CONFIG_IPC_NS=y
+CONFIG_PID_NS=y
+CONFIG_DEVTMPFS=y
+CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y
+CONFIG_USER_NS=y
+CONFIG_IP6_NF_NAT=y
+CONFIG_IP6_NF_TARGET_MASQUERADE=y
+CONFIG_MACVLAN=y
+CONFIG_IP_NF_TARGET_REJECT=y
+CONFIG_IP6_NF_TARGET_REJECT=y
+CONFIG_NETFILTER_XT_TARGET_LOG=y
+CONFIG_NETFILTER_XT_MATCH_RECENT=y
+CONFIG_IP_SET=y
+CONFIG_IP_SET_HASH_IP=y
+CONFIG_IP_SET_HASH_NET=y
+CONFIG_NETFILTER_XT_SET=y
+CONFIG_TMPFS_POSIX_ACL=y
+CONFIG_TMPFS_XATTR=y
+# ---- 2 option BREAK kABI — chỉ dùng cho bộ 3 ảnh vendor flash cùng nhau ----
+CONFIG_CFS_BANDWIDTH=y
+CONFIG_CGROUP_PIDS=y

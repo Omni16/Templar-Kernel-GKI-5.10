@@ -1,0 +1,475 @@
+name: Build Vendor
+
+run-name: "Vendor ${{ inputs.kernel_name || 'Zyomi16' }} | BakaSU+SUSFS+MultiMgr+Droidspace | tree ${{ inputs.tree_ref }}"
+
+# =============================================================================
+# Build bo VENDOR hoan chinh cho marble (sm7475) — thay ca 3 phan vung:
+#   boot (Image) + vendor_boot (modules + dtb/dtbo) + vendor_dlkm (modules)
+#
+# Khac voi Zyomi-kernel.yml (GKI thuan, chi flash boot):
+#   - cay nguon: Pzqqt/android_kernel_xiaomi_marble nhanh bouquet_ci — superset cua
+#     dong Melt (chua melt-rebase + dts vendor + build-tools; v5.10.272)
+#   - config: defconfig dong Melt nhung san (vendor/marble-melt_defconfig, m4lg@3097a527)
+#     + fragment Droidspaces day du 22 muc (gom 2 option BREAK kABI
+#     CFS_BANDWIDTH + CGROUP_PIDS) — chi an toan khi flash DONG BO ca 3 phan vung
+#   - dong goi qua Pzqqt/AnyKernel3 (Marble-Melt) da patch ten Zyomi16
+#   - CHI ho tro ROM HyperOS/MIUI stock (anykernel tu abort tren AOSP/OSS)
+#
+# Quy tac du an: khong "sua cho xanh" — moi tinh nang ghi tren ten zip phai
+# duoc chung minh trong out/.config (build-zyomi-vendor.sh verify cung).
+# =============================================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernel_name:
+        description: "Ten kernel (LOCALVERSION, ten zip). Chi [A-Za-z0-9._-], toi da 32 ky tu."
+        required: false
+        type: string
+        default: Zyomi16
+      tree_ref:
+        description: "Commit cay Pzqqt/android_kernel_xiaomi_marble — nhanh bouquet_ci (superset chua melt-rebase + dts vendor + build-tools; v5.10.272)."
+        required: false
+        type: string
+        default: 44b755a48379c5dcce588c3425d4e9fd5efd0052
+      tooling_ref:
+        description: "Commit chua build-tools (avbtool, fdtget/fdtput, merge_dtbs.py, mkdtboimg.py)."
+        required: false
+        type: string
+        default: 44b755a48379c5dcce588c3425d4e9fd5efd0052
+      ak3_ref:
+        description: "Commit Pzqqt/AnyKernel3 (nhanh Marble-Melt) — KHONG dung ban Bouquet (abort tren MIUI)."
+        required: false
+        type: string
+        default: 699488a82672b6957bc48dc52ed0c43b3546c7c5
+      bakasu_ref:
+        description: "Tag/nhanh BakaSU (root solution). v4.2.0-rc3 = co SUSFS."
+        required: false
+        type: string
+        default: v4.2.0-rc3
+      bakasu_sha:
+        description: "Commit day du cua BakaSU (verify sau khi clone)."
+        required: false
+        type: string
+        default: 239e1e8871b8fcd51a6e5b3002e0ba522fdd99fb
+      susfs_branch:
+        description: "Nhanh susfs4ksu (simonpunk)."
+        required: false
+        type: string
+        default: gki-android12-5.10
+      susfs_sha_prefix:
+        description: "Tien to commit SUSFS mong doi (canh bao neu tip da doi)."
+        required: false
+        type: string
+        default: 31eb14add587
+
+env:
+  KERNEL_REPO: https://github.com/Pzqqt/android_kernel_xiaomi_marble.git
+  KERNEL_BRANCH_FALLBACK: bouquet_ci
+  AK3_REPO: https://github.com/Pzqqt/AnyKernel3.git
+  AK3_BRANCH: Marble-Melt
+  BAKASU_REPO: https://github.com/Baka-SU/BakaSU.git
+  SUSFS_REPO: https://gitlab.com/simonpunk/susfs4ksu.git
+  TZ: Asia/Ho_Chi_Minh
+  KERNEL_NAME: ${{ inputs.kernel_name }}
+  TREE_REF: ${{ inputs.tree_ref }}
+  TOOLING_REF: ${{ inputs.tooling_ref }}
+  AK3_REF: ${{ inputs.ak3_ref }}
+  BAKASU_REF: ${{ inputs.bakasu_ref }}
+  BAKASU_SHA: ${{ inputs.bakasu_sha }}
+  SUSFS_BRANCH: ${{ inputs.susfs_branch }}
+  SUSFS_SHA_PREFIX: ${{ inputs.susfs_sha_prefix }}
+
+jobs:
+  build:
+    name: Build Vendor (${{ github.ref_name }})
+    runs-on: ubuntu-22.04
+    timeout-minutes: 240
+    permissions:
+      contents: read
+    steps:
+    - name: Validate inputs
+      run: |
+        set -euo pipefail
+        fail() { echo "::error::$*"; echo ""; echo "❌ $*" >> "$GITHUB_STEP_SUMMARY"; exit 1; }
+
+        printf '%s' "$KERNEL_NAME" | grep -Eq '^[A-Za-z0-9._-]{1,32}$' \
+          || fail "kernel_name khong hop le: '$KERNEL_NAME' (chi [A-Za-z0-9._-], <= 32 ky tu)"
+        if printf '%s' "$KERNEL_NAME" | grep -qiE 'melt|bouquet|pzqqt'; then
+          fail "kernel_name khong duoc chua Melt/Bouquet/Pzqqt (quy dinh ten san pham)"
+        fi
+        for pair in "tree_ref:$TREE_REF" "tooling_ref:$TOOLING_REF" "ak3_ref:$AK3_REF" "bakasu_sha:$BAKASU_SHA"; do
+          key="${pair%%:*}"; val="${pair#*:}"
+          printf '%s' "$val" | grep -Eq '^[0-9a-f]{40}$' \
+            || fail "$key phai la sha 40 hex (dang nhan: '$val')"
+        done
+        printf '%s' "$SUSFS_SHA_PREFIX" | grep -Eq '^[0-9a-f]{8,40}$' \
+          || fail "susfs_sha_prefix phai la tien to hex >= 8 ky tu"
+        [ -n "$BAKASU_REF" ] || fail "bakasu_ref rong"
+        [ -n "$SUSFS_BRANCH" ] || fail "susfs_branch rong"
+
+        echo "[OK] kernel=$KERNEL_NAME tree=${TREE_REF:0:12} tooling=${TOOLING_REF:0:12} ak3=${AK3_REF:0:12} bakasu=$BAKASU_REF@${BAKASU_SHA:0:12} susfs=$SUSFS_BRANCH@$SUSFS_SHA_PREFIX"
+        {
+          echo "### Build Vendor (marble sm7475)"
+          echo ""
+          echo "| Truong | Gia tri |"
+          echo "| :--- | :--- |"
+          echo "| kernel_name | \`$KERNEL_NAME\` |"
+          echo "| cay nguon | Pzqqt marble bouquet_ci (superset melt-rebase) \`${TREE_REF:0:12}\` |"
+          echo "| AK3 | Pzqqt/AnyKernel3 Marble-Melt \`${AK3_REF:0:12}\` |"
+          echo "| root | BakaSU \`$BAKASU_REF\` (\`${BAKASU_SHA:0:12}\`) |"
+          echo "| SUSFS | \`$SUSFS_BRANCH\` @ \`$SUSFS_SHA_PREFIX\` |"
+          echo "| config | defconfig Melt (m4lg) + fragment 22 muc (20 kABI-safe + CFS_BANDWIDTH + CGROUP_PIDS) + LTO clang FULL + BUILD_ARM64_DT_OVERLAY |"
+          echo "| ROM ho tro | HyperOS/MIUI stock (marble) — flash dong bo boot + vendor_boot + vendor_dlkm + dtbo |"
+        } >> "$GITHUB_STEP_SUMMARY"
+    - name: Checkout CI scripts (vendor/)
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 1
+        filter: blob:none
+        sparse-checkout: '/vendor/'
+        sparse-checkout-cone-mode: false
+    - name: Checkout CI scripts check
+      run: |
+        set -euo pipefail
+        for f in vendor/build-zyomi-vendor.sh vendor/ak3-patch.py vendor/gen-module-dirs.py \
+                 vendor/droidspaces-vendor.fragment vendor/banner \
+                 vendor/marble-melt_defconfig vendor/modules/both.txt \
+                 vendor/modules/vendor_boot.txt vendor/modules/vendor_dlkm.txt \
+                 vendor/modules/known-missing.txt \
+                 vendor/modules/load/vendor_boot.modules.load \
+                 vendor/modules/load/vendor_boot.modules.load.recovery \
+                 vendor/modules/load/vendor_boot.modules.blocklist \
+                 vendor/modules/load/vendor_dlkm.modules.load \
+                 vendor/modules/load/vendor_dlkm.modules.blocklist \
+                 vendor/modules/load/vendor_dlkm.modules.options; do
+          [ -s "$f" ] || { echo "::error::thieu file CI: $f (sparse-checkout?)"; exit 1; }
+        done
+        echo "[OK] du file CI scripts trong vendor/"
+    - name: Maximize build disk space
+      uses: jlumbroso/free-disk-space@main
+      with:
+        tool-cache: true
+        android: true
+        dotnet: true
+        haskell: true
+        large-packages: true
+        docker-images: true
+        swap-storage: false
+    - name: Configure 10GB swap
+      run: |
+        echo "[*] Setting up 10GB swap to prevent OOM..."
+        sudo fallocate -l 10G /swapfile_10g || sudo dd if=/dev/zero of=/swapfile_10g bs=1M count=10240
+        sudo chmod 600 /swapfile_10g
+        sudo mkswap /swapfile_10g
+        sudo swapon /swapfile_10g
+        free -h
+        df -h /
+    - name: Install build dependencies
+      run: |
+        set -euo pipefail
+        sudo apt-get update -qq
+        sudo apt-get install -y --no-install-recommends \
+          bc bison build-essential ca-certificates cpio curl \
+          dwarves flex git git-lfs kmod libelf-dev libssl-dev \
+          make patch python3 python3-rich python-is-python3 \
+          unzip wget xz-utils zip zstd lz4 jq
+    - name: Cache Slim LLVM 23.1.3
+      id: llvm-cache
+      uses: actions/cache@v4
+      with:
+        path: ~/build_toolchain/llvm-23.1.3-x86_64.tar.xz
+        key: llvm-23.1.3-x86_64
+    - name: Download Slim LLVM 23.1.3
+      if: steps.llvm-cache.outputs.cache-hit != 'true'
+      run: |
+        set -euo pipefail
+        mkdir -p "$HOME/build_toolchain"
+        ok=""
+        for url in \
+          "https://mirrors.edge.kernel.org/pub/tools/llvm/files/llvm-23.1.3-x86_64.tar.xz" \
+          "https://mirrors.kernel.org/pub/tools/llvm/files/llvm-23.1.3-x86_64.tar.xz"; do
+          echo "[*] Thu tai: $url"
+          if curl -fL --retry 2 --retry-delay 5 -o "$HOME/build_toolchain/llvm-23.1.3-x86_64.tar.xz" "$url"; then
+            ok=1; break
+          fi
+        done
+        [ -n "$ok" ] || { echo "::error::khong tai duoc Slim LLVM 23.1.3"; exit 1; }
+        ls -la "$HOME/build_toolchain"
+    - name: Extract Slim LLVM + set PATH
+      run: |
+        set -euo pipefail
+        cd "$HOME/build_toolchain"
+        [ -f llvm-23.1.3-x86_64.tar.xz ] || { echo "::error::thieu llvm-23.1.3-x86_64.tar.xz"; exit 1; }
+        [ -d llvm-23.1.3-x86_64 ] || tar -xJf llvm-23.1.3-x86_64.tar.xz
+        [ -x llvm-23.1.3-x86_64/bin/clang ] || { echo "::error::giai nen LLVM that bai"; exit 1; }
+        echo "$HOME/build_toolchain/llvm-23.1.3-x86_64/bin" >> "$GITHUB_PATH"
+        "$HOME/build_toolchain/llvm-23.1.3-x86_64/bin/clang" --version | head -n 1
+    - name: Download static 7za (7z2603)
+      run: |
+        set -euo pipefail
+        mkdir -p "$HOME/.local/bin"
+        rm -rf /tmp/7z2603 && mkdir -p /tmp/7z2603
+        cd /tmp/7z2603
+        curl -fL --retry 3 --retry-delay 5 -o 7z.tar.xz \
+          "https://github.com/ip7z/7zip/releases/download/26.03/7z2603-linux-x64.tar.xz"
+        tar -xJf 7z.tar.xz
+        cp -f 7zzs "$HOME/.local/bin/7za"
+        chmod +x "$HOME/.local/bin/7za"
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        "$HOME/.local/bin/7za" i | head -n 5
+    - name: Clone kernel tree (Pzqqt marble @ tree_ref)
+      run: |
+        set -euo pipefail
+        cd "$GITHUB_WORKSPACE"
+        ok=""
+        for i in 1 2 3; do
+          rm -rf kernel
+          if ( git init -q kernel \
+               && cd kernel \
+               && git remote add origin "$KERNEL_REPO" \
+               && git fetch --depth=1 origin "$TREE_REF" \
+               && git checkout -q FETCH_HEAD ); then
+            ok=1; break
+          fi
+          echo "[!] fetch sha lan $i loi — thu lai sau 10s"
+          sleep 10
+        done
+        if [ -z "$ok" ]; then
+          for i in 1 2 3; do
+            rm -rf kernel
+            if git clone -q --depth=200 --branch "$KERNEL_BRANCH_FALLBACK" "$KERNEL_REPO" kernel \
+               && (cd kernel && git checkout -q "$TREE_REF"); then
+              ok=1; break
+            fi
+            echo "[!] clone branch lan $i loi — thu lai sau 10s"
+            sleep 10
+          done
+        fi
+        [ -n "$ok" ] || { echo "::error::khong lay duoc cay kernel @ $TREE_REF"; exit 1; }
+
+        cd kernel
+        HEAD_SHA=$(git rev-parse HEAD)
+        [ "$HEAD_SHA" = "$TREE_REF" ] || { echo "::error::cay kernel HEAD=$HEAD_SHA != tree_ref=$TREE_REF"; exit 1; }
+        [ -f arch/arm64/configs/marble_defconfig ] && [ -d techpack ] && [ -d arch/arm64/boot/dts/vendor/qcom ] \
+          || { echo "::error::cay khong phai cay vendor marble (thieu marble_defconfig/techpack/dts vendor)"; exit 1; }
+
+        KVER=$(make -s kernelversion)
+        echo "[i] Kernel tree OK: $HEAD_SHA — kernelversion=$KVER"
+        {
+          echo "KVER=$KVER"
+          echo "SHORT_SHA=${TREE_REF:0:12}"
+          echo "BUILD_DATE=$(date +'%Y%m%d_%H%M')"
+          echo "ZIP_NAME=${KERNEL_NAME}-${KVER}-Vendor-BakaSU+SUSFS+MultiMgr+Droidspace-$(date +'%Y%m%d_%H%M').zip"
+        } >> "$GITHUB_ENV"
+    - name: Download build-tools (merge_dtbs / mkdtboimg / avbtool / fdtget / fdtput)
+      run: |
+        set -euo pipefail
+        mkdir -p "$HOME/tooling"
+        if [ -d "$GITHUB_WORKSPACE/kernel/build-tools" ]; then
+          cp -f "$GITHUB_WORKSPACE"/kernel/build-tools/* "$HOME/tooling/" 2>/dev/null || true
+          echo "[i] da copy build-tools co san trong cay kernel"
+        fi
+        RAW="https://raw.githubusercontent.com/Pzqqt/android_kernel_xiaomi_marble/${TOOLING_REF}/build-tools"
+        for f in avbtool fdtget fdtoverlay fdtoverlaymerge fdtput merge_dtbs.py mkdtboimg.py ufdt_apply_overlay; do
+          if [ -s "$HOME/tooling/$f" ]; then echo "[i] co san: $f"; continue; fi
+          ok=""
+          for i in 1 2 3; do
+            if curl -fL --retry 2 --retry-delay 5 -o "$HOME/tooling/$f" "$RAW/$f"; then ok=1; break; fi
+            echo "[!] tai $f lan $i loi — thu lai sau 5s"
+            sleep 5
+          done
+          [ -n "$ok" ] || { echo "::error::khong tai duoc build-tool: $f"; exit 1; }
+        done
+        chmod +x "$HOME/tooling"/* || true
+        for f in merge_dtbs.py mkdtboimg.py; do
+          head -c 2 "$HOME/tooling/$f" | grep -q '#!' \
+            || { echo "::error::build-tool $f thieu shebang (khong chay truc tiep duoc)"; exit 1; }
+        done
+        echo "$HOME/tooling" >> "$GITHUB_PATH"
+        ls -la "$HOME/tooling"
+    - name: Clone BakaSU (root)
+      run: |
+        set -euo pipefail
+        cd "$HOME"
+        ok=""
+        for i in 1 2 3; do
+          rm -rf BakaSU
+          if git clone -q --depth=1 --branch "$BAKASU_REF" "$BAKASU_REPO" BakaSU; then ok=1; break; fi
+          echo "[!] clone BakaSU lan $i loi — thu lai sau 10s"
+          sleep 10
+        done
+        [ -n "$ok" ] || { echo "::error::khong clone duoc BakaSU ($BAKASU_REF)"; exit 1; }
+        SHA=$(git -C BakaSU rev-parse HEAD)
+        [ "$SHA" = "$BAKASU_SHA" ] || { echo "::error::BakaSU HEAD=$SHA != bakasu_sha=$BAKASU_SHA"; exit 1; }
+        grep -qE '^config KSU_SUSFS$' BakaSU/kernel/Kconfig \
+          || { echo "::error::BakaSU khong co config KSU_SUSFS"; exit 1; }
+        echo "[i] BakaSU OK: $BAKASU_REF @ $SHA"
+    - name: Clone SUSFS (simonpunk/susfs4ksu)
+      run: |
+        set -euo pipefail
+        cd "$HOME"
+        ok=""
+        for i in 1 2 3; do
+          rm -rf susfs4ksu
+          if git clone -q --depth=1 --branch "$SUSFS_BRANCH" "$SUSFS_REPO" susfs4ksu; then ok=1; break; fi
+          echo "[!] clone susfs4ksu lan $i loi — thu lai sau 10s"
+          sleep 10
+        done
+        [ -n "$ok" ] || { echo "::error::khong clone duoc susfs4ksu ($SUSFS_BRANCH)"; exit 1; }
+        SHA=$(git -C susfs4ksu rev-parse HEAD)
+        echo "[i] SUSFS tip: $SHA"
+        case "$SHA" in
+          "$SUSFS_SHA_PREFIX"*) echo "[i] SUSFS khop tien to pin $SUSFS_SHA_PREFIX" ;;
+          *) echo "::warning::SUSFS tip $SHA KHONG khop tien to pin $SUSFS_SHA_PREFIX — build tiep, patch se duoc kiem tra that" ;;
+        esac
+        [ -f susfs4ksu/kernel_patches/50_add_susfs_in_gki-android12-5.10.patch ] \
+          || { echo "::error::thieu patch 50_add_susfs_in_gki-android12-5.10.patch"; exit 1; }
+    - name: Clone AK3 (Pzqqt/AnyKernel3 @ ak3_ref)
+      run: |
+        set -euo pipefail
+        cd "$GITHUB_WORKSPACE"
+        ok=""
+        for i in 1 2 3; do
+          rm -rf ak3
+          if ( git init -q ak3 \
+               && cd ak3 \
+               && git remote add origin "$AK3_REPO" \
+               && git fetch --depth=1 origin "$AK3_REF" \
+               && git checkout -q FETCH_HEAD ); then
+            ok=1; break
+          fi
+          echo "[!] fetch AK3 sha lan $i loi — thu lai sau 10s"
+          sleep 10
+        done
+        if [ -z "$ok" ]; then
+          for i in 1 2 3; do
+            rm -rf ak3
+            if git clone -q --depth=1 --branch "$AK3_BRANCH" "$AK3_REPO" ak3; then ok=1; break; fi
+            echo "[!] clone AK3 branch lan $i loi — thu lai sau 10s"
+            sleep 10
+          done
+        fi
+        [ -n "$ok" ] || { echo "::error::khong lay duoc AK3 @ $AK3_REF"; exit 1; }
+        SHA=$(git -C ak3 rev-parse HEAD)
+        [ "$SHA" = "$AK3_REF" ] || { echo "::error::AK3 HEAD=$SHA != ak3_ref=$AK3_REF (cap nhat input ak3_ref co chu dich neu tip da doi)"; exit 1; }
+        [ -f ak3/anykernel.sh ] && [ -f ak3/make_package.py ] \
+          || { echo "::error::AK3 thieu anykernel.sh/make_package.py"; exit 1; }
+        echo "[i] AK3 OK: $SHA"
+    - name: Patch AK3 (rebrand Zyomi16, bo prompt _alt, ten zip)
+      run: |
+        set -euo pipefail
+        cd "$GITHUB_WORKSPACE"
+        python3 vendor/ak3-patch.py --ak3 ak3 --kernel-name "$KERNEL_NAME" --banner vendor/banner
+        bash -n ak3/anykernel.sh
+        python3 -m py_compile ak3/make_package.py ak3/depmod_regen.py ak3/simulate_load_kernel_modules.py
+        grep -q "@SHA1_IMAGE@" ak3/anykernel.sh || { echo "::error::anykernel.sh thieu @SHA1_IMAGE@"; exit 1; }
+        echo "[OK] AK3 da patch + bash -n + py_compile"
+    - name: Build kernel + modules (vendor/build-zyomi-vendor.sh)
+      env:
+        KERNEL_DIR: ${{ github.workspace }}/kernel
+        BAKASU_DIR: /home/runner/BakaSU
+        SUSFS_DIR: /home/runner/susfs4ksu
+        TOOLING_DIR: /home/runner/tooling
+        VENDOR_DIR: ${{ github.workspace }}/vendor
+        OUTPUT_DIR: /home/runner/zyomi_out
+        KERNEL_SHA_EXPECT: ${{ inputs.tree_ref }}
+        KERNEL_NAME: ${{ inputs.kernel_name }}
+      run: |
+        set -euo pipefail
+        export PATH="$HOME/build_toolchain/llvm-23.1.3-x86_64/bin:$HOME/tooling:$HOME/.local/bin:$PATH"
+        clang --version | head -n 1
+        bash "$VENDOR_DIR/build-zyomi-vendor.sh"
+    - name: Package flashable zip (AnyKernel3)
+      run: |
+        set -euo pipefail
+        export PATH="$HOME/tooling:$HOME/.local/bin:$PATH"
+        cd "$GITHUB_WORKSPACE/ak3"
+
+        # 1) dtb + dtbo tu build -> patch nghiep vu (Pzqqt) -> _dtb/
+        cp -f "$HOME/zyomi_out/devicetree/ukee.dtb" ./dtb
+        cp -f "$HOME/zyomi_out/devicetree/dtbo.img" ./dtbo.img
+        bash modify_dtb_and_dtboimg.sh
+        [ -f ./dtb ] && [ -f ./dtbo-0.img ] && [ -f ./dtbo-1.img ] \
+          || { echo "::error::modify_dtb_and_dtboimg.sh khong tao du dtb/dtbo-0.img/dtbo-1.img"; exit 1; }
+        rm -rf _dtb && mkdir -p _dtb
+        mv -f ./dtb ./dtbo-0.img ./dtbo-1.img _dtb/
+
+        # 2) modules: do 2 bo vao _modules_hyperos/, go placeholder cua AK3 goc:
+        #    - dummy.ko (2 cho) + _alt/*.ko (12 file 11B): _alt cua Pzqqt la cho prebuilt
+        #      (MI-zram/OSS-*/xiaomi_touch_los/ntsync...) — ban Zyomi16 vendor chi ho tro
+        #      MIUI stock, va moi tham chieu _alt con lai trong anykernel.sh da duoc
+        #      doi chieu la KHONG THE CHAM TOI tren MIUI => xoa han khoi zip.
+        rm -f _modules_hyperos/_vendor_boot_modules/dummy.ko
+        rm -f _modules_hyperos/_vendor_dlkm_modules/dummy.ko
+        rm -rf _modules_hyperos/_alt
+        cp -a "$HOME/zyomi_out/modules/vendor_boot_modules/." _modules_hyperos/_vendor_boot_modules/
+        cp -a "$HOME/zyomi_out/modules/vendor_dlkm_modules/." _modules_hyperos/_vendor_dlkm_modules/
+        # chi soi file .ko (modules.options 59B la file load-options hop le, khong phai placeholder)
+        if find _modules_hyperos -type f -name '*.ko' -size -100c | grep -q .; then
+          echo "::error::con file .ko placeholder <100B trong _modules_hyperos (depmod se fail):"
+          find _modules_hyperos -type f -name '*.ko' -size -100c
+          exit 1
+        fi
+
+        # 3) Image
+        cp -f "$HOME/zyomi_out/Image" ./Image
+
+        # 4) chay packager (depmod regen + simulate + 7z + zip + sha1)
+        export VMLINUX_SYMVERS_FILE="$HOME/zyomi_out/Image_vmlinux.symvers"
+        export OUTPUT_ZIP_NAME="$ZIP_NAME"
+        python3 make_package.py "$KVER"
+        [ -f "$ZIP_NAME" ] || { echo "::error::khong thay zip dau ra: $ZIP_NAME"; exit 1; }
+        echo "[i] zip: $(du -h "$ZIP_NAME" | cut -f1)"
+    - name: Verify zip + checksum + manifest
+      run: |
+        set -euo pipefail
+        export PATH="$HOME/.local/bin:$PATH"
+        cd "$GITHUB_WORKSPACE/ak3"
+        ZIP="$GITHUB_WORKSPACE/ak3/$ZIP_NAME"
+
+        7za l "$ZIP" > /tmp/zip-list.txt
+        for f in anykernel.sh _restore_anykernel.sh _rollback_anykernel.sh \
+                 Image.7z _dtb.7z _modules_hyperos.7z banner LICENSE \
+                 META-INF/com/google/android/update-binary; do
+          grep -qF "$f" /tmp/zip-list.txt || { echo "::error::zip thieu muc: $f"; cat /tmp/zip-list.txt; exit 1; }
+        done
+
+        # anykernel trong zip: placeholder phai duoc thay bang sha1 that
+        7za e -so "$ZIP" anykernel.sh > /tmp/zip-anykernel.sh
+        if grep -q "@SHA1_IMAGE@" /tmp/zip-anykernel.sh; then
+          echo "::error::anykernel.sh trong zip con placeholder @SHA1_IMAGE@"; exit 1
+        fi
+        grep -q "kernel.string=$KERNEL_NAME Kernel by Omni16" /tmp/zip-anykernel.sh \
+          || { echo "::error::kernel.string trong zip khong dung rebrand"; exit 1; }
+        grep -q "$KERNEL_NAME-restore-kernel-" /tmp/zip-anykernel.sh \
+          || { echo "::error::ten backup zip chua rebrand"; exit 1; }
+
+        # uname phai khop LOCALVERSION-<tree sha>
+        grep -a -m1 -o "Linux version $KVER-$KERNEL_NAME-$SHORT_SHA" "$HOME/zyomi_out/Image" >/dev/null \
+          || { echo "::error::Image khong chua chuoi uname mong doi ($KVER-$KERNEL_NAME-$SHORT_SHA)"; exit 1; }
+
+        mkdir -p "$GITHUB_WORKSPACE/out_release"
+        cd "$GITHUB_WORKSPACE/out_release"
+        cp -f "$ZIP" .
+        sha256sum "$ZIP_NAME" > "$ZIP_NAME.sha256"
+        cat "$ZIP_NAME.sha256"
+        cp -f "$HOME/zyomi_out/build-info.txt" ./build-info.txt
+        cp -f "$HOME/zyomi_out/modules-report.txt" ./modules-report.txt
+        cp -f "$GITHUB_WORKSPACE/kernel/out/.config" ./out.config
+        ls -la
+        {
+          echo "### Sau build"
+          echo ""
+          echo "- zip: \`$ZIP_NAME\`"
+          echo "- sha256: \`$(cut -d' ' -f1 "$ZIP_NAME.sha256")\`"
+          echo "- kernelversion: \`$KVER\` — uname: \`$KVER-$KERNEL_NAME-$SHORT_SHA\`"
+          echo "- tree: \`$TREE_REF\`"
+        } >> "$GITHUB_STEP_SUMMARY"
+    - name: Upload artifact (zip + sha256 + manifest)
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.ZIP_NAME }}
+        path: ${{ github.workspace }}/out_release/
+        if-no-files-found: error
+        retention-days: 15
