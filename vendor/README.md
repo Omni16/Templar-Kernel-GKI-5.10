@@ -76,7 +76,10 @@ fragment **22/22** (20 kABI-safe + `CFS_BANDWIDTH` + `CGROUP_PIDS`) · `BUILD_AR
   `ntsync.ko` (cố ý bỏ), `cs35l41_dlkm.ko` (stock không có).
 - **load/ v2**: thứ tự **theo stock** từng phân vùng, lọc theo bộ ship; entry riêng của ta
   (`hdcp`, `vh_fs`, `kshrink_*`) chèn lại đúng vị trí tương đối v1; `kshrink_lruvecd.ko`
-  nay **có** entry (v1 thiếu). `blocklist`/`options` giữ nguyên (đã khớp stock).
+  nay **có** entry (v1 thiếu). `modules.load.recovery` **thêm `xiaomi_touch.ko` ngay trước
+  `goodix_core.ko`** (như v1): simulate của Pzqqt chỉ load module **có trong list** — dep
+  ngoài list bị bỏ qua, nên thiếu entry là `Unknown symbol` (run 39242464729).
+  `blocklist`/`options` giữ nguyên (đã khớp stock).
 
 ## Giới hạn v1 (đọc trước khi flash)
 
