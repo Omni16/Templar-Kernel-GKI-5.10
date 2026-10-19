@@ -312,22 +312,45 @@ jobs:
       run: |
         set -euo pipefail
         cd "$HOME"
+        rm -rf susfs4ksu susfs_extract susfs.tar.gz
+        # HARD PIN (khong dung tip): tu 5a3af83e ("Sync with official KernelSU main repo"),
+        # patch 50_add goi ksu_setup_preinit_file/ksu_preinit_handle_post_execveat (preinit
+        # cua KernelSU main). BakaSU v4.2.0-rc3 khong dinh nghia 2 ham nay -> ld.lld
+        # "undefined symbol" o buoc link vmlinux (run 39210253573). Pin ve commit truoc do.
         ok=""
         for i in 1 2 3; do
           rm -rf susfs4ksu
           # clone full (khong --depth) de checkout duoc commit pin trong lich su nhanh
           if git clone -q --branch "$SUSFS_BRANCH" "$SUSFS_REPO" susfs4ksu; then ok=1; break; fi
-          echo "[!] clone susfs4ksu lan $i loi — thu lai sau 10s"
-          sleep 10
+          echo "[!] clone susfs4ksu lan $i loi — thu lai sau 15s"
+          sleep 15
         done
-        [ -n "$ok" ] || { echo "::error::khong clone duoc susfs4ksu ($SUSFS_BRANCH)"; exit 1; }
-        # HARD PIN (khong dung tip): tu 5a3af83e ("Sync with official KernelSU main repo"),
-        # patch 50_add goi ksu_setup_preinit_file/ksu_preinit_handle_post_execveat (preinit
-        # cua KernelSU main). BakaSU v4.2.0-rc3 khong dinh nghia 2 ham nay -> ld.lld
-        # "undefined symbol" o buoc link vmlinux (run 39210253573). Pin ve commit truoc do.
-        git -C susfs4ksu checkout -q --detach "$SUSFS_SHA_PREFIX" \
-          || { echo "::error::khong checkout duoc pin $SUSFS_SHA_PREFIX (khong ton tai/khong duy nhat?)"; exit 1; }
-        SHA=$(git -C susfs4ksu rev-parse HEAD)
+        SHA=""
+        if [ -n "$ok" ] && git -C susfs4ksu checkout -q --detach "$SUSFS_SHA_PREFIX" 2>/dev/null; then
+          SHA=$(git -C susfs4ksu rev-parse HEAD)
+        fi
+        if [ -z "$SHA" ]; then
+          # Fallback khi GitLab chan smart-git ("remote error: GitLab is currently unable
+          # to handle this request due to load" — run 39240844304): API + archive endpoint
+          # van hoat dong. Resolve prefix -> FULL sha qua API, tai archive dung commit do,
+          # verify thu muc goc = susfs4ksu-<FULL> (khong doi pin, khong bo kiem tra).
+          echo "[!] git clone/checkout that bai — fallback: tai archive theo pin qua GitLab API"
+          rm -rf susfs4ksu susfs_extract susfs.tar.gz
+          FULL=$(curl -fsS --retry 5 --retry-delay 10 --max-time 60 \
+            "https://gitlab.com/api/v4/projects/simonpunk%2Fsusfs4ksu/repository/commits/$SUSFS_SHA_PREFIX" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])') \
+            || { echo "::error::khong resolve duoc full SHA cho pin $SUSFS_SHA_PREFIX qua API"; exit 1; }
+          [ -n "$FULL" ] || { echo "::error::API tra full SHA rong cho pin $SUSFS_SHA_PREFIX"; exit 1; }
+          curl -fL --retry 5 --retry-delay 10 --max-time 300 -o susfs.tar.gz \
+            "https://gitlab.com/simonpunk/susfs4ksu/-/archive/$FULL/susfs4ksu-$FULL.tar.gz" \
+            || { echo "::error::tai archive SUSFS that bai ($FULL)"; exit 1; }
+          mkdir -p susfs_extract
+          tar -xzf susfs.tar.gz -C susfs_extract
+          [ -d "susfs_extract/susfs4ksu-$FULL" ] \
+            || { echo "::error::archive SUSFS khong dung thu muc commit $FULL"; exit 1; }
+          mv "susfs_extract/susfs4ksu-$FULL" susfs4ksu
+          SHA="$FULL"
+        fi
         case "$SHA" in
           "$SUSFS_SHA_PREFIX"*) echo "[i] SUSFS pin OK: $SHA" ;;
           *) echo "::error::SUSFS pin $SUSFS_SHA_PREFIX resolve thanh $SHA — khong khop"; exit 1 ;;
