@@ -38,6 +38,7 @@ INFO_FILE="$ROOT/integration-info.txt"
 BAKASU_INFO="$(sed -n 's/^BakaSU commit: //p' "$INFO_FILE" 2>/dev/null || true)"
 KSU_INFO="$(sed -n 's/^KernelSU version full: //p' "$INFO_FILE" 2>/dev/null || true)"
 SUSFS_INFO="$(sed -n 's/^SUSFS version: //p' "$INFO_FILE" 2>/dev/null || true)"
+SUSFS_FIX_INFO="$(sed -n 's/^SUSFS log-off fix: //p' "$INFO_FILE" 2>/dev/null || true)"
 HOOK_INFO="$(sed -n 's/^Hook mode: //p' "$INFO_FILE" 2>/dev/null || true)"
 mkdir -p "$ARTIFACT_DIR"
 rm -rf "$WORK_DIR"
@@ -190,6 +191,7 @@ Git SHA        : ${GITHUB_SHA}
 Workflow run   : ${RUN_NUMBER}
 KernelSU       : BakaSU ${BAKASU_INFO:-unknown} (${KSU_INFO:-unknown})
 SUSFS          : ${SUSFS_INFO:-unknown}
+SUSFS log fix  : ${SUSFS_FIX_INFO:-unknown}
 Hook mode      : ${HOOK_INFO:-unknown}
 
 Artifacts

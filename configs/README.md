@@ -57,6 +57,11 @@ changes, without silently claiming an option that the tree does not have.
 `configure-kernel.sh` merges the generated file (when it contains real
 symbols) and audits every option that was requested on.
 
+`KSU_SUSFS_ENABLE_LOG` stays off.  SUSFS v2.4.0 uses its ratelimited logging
+macro outside the `ENABLE_LOG` guard, so `patches/0002-susfs-log-off-ratelimited-macros.patch`
+adds guarded no-op definitions.  The patch is applied strictly and is skipped
+when a later SUSFS revision already defines them.
+
 ## Small Kconfig patch
 
 `patches/0001-kconfig-allow-zyomi16-options.patch` makes three

@@ -72,7 +72,8 @@ disabled (or the image signed) for them to boot.  The marble DTB remains in
   <https://bakasu.org/guide/build>.  The commit and KernelSU version are
   recorded in `integration-info.txt`, the job log and the artifact name.
 - SUSFS: latest `gki-android12-5.10` branch at build time (v2.4.0 at the time
-  of writing), patch 50 plus its source/header files.
+  of writing), patch 50 plus its source/header files.  Logging stays off; a
+  strict no-op macro fix covers SUSFS v2.4.0's logging-disabled build path.
 - `CONFIG_KSU=y`, `CONFIG_KSU_SUSFS=y`, `CONFIG_KSU_MANUAL_HOOK=n`,
   `CONFIG_KSU_TRACEPOINT_HOOK=n`, `CONFIG_KPROBES=n`.
 - The integration script verifies every required hook before the build.  A

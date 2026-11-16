@@ -84,6 +84,9 @@ fastboot flags and rollback sequence.
   stat, read, input, setuid and reboot hooks; the integration script verifies
   each hook after patching.  If a hunk is rejected, the build stops and uploads
   the patch log plus the `.rej` files under `susfs-rejects/`.
+- SUSFS v2.4.0's `fs/susfs.c` uses `SUSFS_LOGI_RL()` with logging disabled.
+  `patches/0002-susfs-log-off-ratelimited-macros.patch` supplies guarded no-op
+  ratelimited macros, so logging stays off without touching patch 50.
 - `CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT` is enabled only if the BakaSU Kconfig
   defines it.  `CONFIG_KSU_SUSFS_SUS_SU` is forced off if it exists, because
   the SUSFS inline-hook mode and manual-hook/SUS_SU mode must not be combined.

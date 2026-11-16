@@ -25,6 +25,13 @@
 - Patch safety: SUSFS patch 50 is applied with `--fuzz=0` and no forcing.  If a
   hunk is rejected, the workflow prints the patch output plus every `.rej`
   file/hunk and uploads them as `susfs-rejects/`; it does not continue.
+- Logging-off compatibility: SUSFS v2.4.0 calls `SUSFS_LOGI_RL()` even when
+  `CONFIG_KSU_SUSFS_ENABLE_LOG=n`, but defines that macro only in the
+  logging-enabled branch.  `patches/0002-susfs-log-off-ratelimited-macros.patch`
+  adds guarded no-op definitions after the logging block and is applied after
+  the SUSFS sources are copied, also with `--fuzz=0`.  It is skipped
+  automatically if a later SUSFS revision already defines them.  Patch 50
+  itself is unchanged.
 - Manager APK: the latest BakaSU GitHub release (including pre-releases) is
   downloaded as an artifact together with `manager-info.txt`, which also links
   the userspace module <https://github.com/sidex15/ksu_module_susfs>.

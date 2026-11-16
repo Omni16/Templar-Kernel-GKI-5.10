@@ -319,6 +319,7 @@ jobs:
             out/ksu-config.txt
             out/bakasu-setup.sh
             out/bakasu-setup.sha256
+            out/susfs-logfix.log
             configs/ksu-susfs-extra.fragment
             integration-info.txt
           if-no-files-found: warn
@@ -410,6 +411,7 @@ jobs:
             out/.config
             out/config-report.md
             out/susfs-patch.log
+            out/susfs-logfix.log
             out/susfs-rejects.txt
             configs/ksu-susfs-extra.fragment
             integration-info.txt
@@ -461,7 +463,7 @@ jobs:
             echo "## BakaSU / SUSFS integration summary"
             echo ""
             if [ -s "$INFO" ]; then
-              grep -E '^(BakaSU commit:|KernelSU version code:|KernelSU version full:|SUSFS commit:|SUSFS version:|Hook mode:|Manual hook:|Tracepoint hook:|KPROBES:|SUSFS HAS_MAGIC_MOUNT:|SUSFS SUS_SU:)' "$INFO" \
+              grep -E '^(BakaSU commit:|KernelSU version code:|KernelSU version full:|SUSFS commit:|SUSFS version:|SUSFS log-off fix:|Hook mode:|Manual hook:|Tracepoint hook:|KPROBES:|SUSFS HAS_MAGIC_MOUNT:|SUSFS SUS_SU:)' "$INFO" \
                 | sed 's/^/- /' || true
             else
               echo "- integration-info.txt missing"

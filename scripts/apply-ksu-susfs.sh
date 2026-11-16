@@ -39,6 +39,7 @@ KSU_DIR="$ROOT/KernelSU"
 SUSFS_DIR="${SUSFS_DIR:-$ROOT/susfs4ksu}"
 SUSFS_EXTRA="${SUSFS_EXTRA:-$ROOT/configs/ksu-susfs-extra.fragment}"
 KCONFIG_PATCH="${KCONFIG_PATCH:-$ROOT/patches/0001-kconfig-allow-zyomi16-options.patch}"
+SUSFS_LOGFIX_PATCH="${SUSFS_LOGFIX_PATCH:-$ROOT/patches/0002-susfs-log-off-ratelimited-macros.patch}"
 INFO_FILE="${INFO_FILE:-$ROOT/integration-info.txt}"
 OUT_DIR="${OUT_DIR:-$ROOT/out}"
 PATCH_LOG="$OUT_DIR/susfs-patch.log"
@@ -81,6 +82,24 @@ check_no_rejects() {
         show_rejects
         fail "patch left reject files in the source tree"
     fi
+}
+
+save_reject_report() {
+    local message="$1"
+    local patch_file="$2"
+    local log_file="$3"
+    local rc="$4"
+
+    {
+        echo "ERROR: $message (exit code $rc)"
+        echo "Patch: $patch_file"
+        echo "Patch output (failed files/hunks):"
+        cat "$log_file"
+        echo ""
+        show_rejects
+    } | tee "$OUT_DIR/susfs-rejects.txt" >&2
+    find_rejects -exec cp --parents {} "$REJECT_DIR/" \;
+    cp "$log_file" "$REJECT_DIR/" 2>/dev/null || true
 }
 
 [ -f Makefile ] || fail "run this script from the kernel tree"
@@ -173,6 +192,41 @@ cp -f "$SUSFS_DIR/kernel_patches/fs/susfs.c" fs/susfs.c
 cp -f "$SUSFS_DIR/kernel_patches/include/linux/susfs.h" include/linux/susfs.h
 cp -f "$SUSFS_DIR/kernel_patches/include/linux/susfs_def.h" include/linux/susfs_def.h
 
+mkdir -p "$REJECT_DIR"
+rm -rf "${REJECT_DIR:?}"/*
+
+# ---------------------------------------------------------------------------
+# 3b. Keep CONFIG_KSU_SUSFS_ENABLE_LOG=n buildable
+# ---------------------------------------------------------------------------
+# SUSFS v2.4.0 calls SUSFS_LOGI_RL() unconditionally in fs/susfs.c but only
+# defines the ratelimited logging macros when CONFIG_KSU_SUSFS_ENABLE_LOG is
+# enabled.  The fix adds guarded no-op definitions after the logging block, so
+# they are used only when the enabled branch did not provide them.  This is a
+# separate, strictly applied compatibility patch; SUSFS patch 50 itself is
+# never modified, forced or fuzzed.
+if [ "$(grep -c '^#define SUSFS_LOGI_RL' fs/susfs.c)" -lt 2 ]; then
+    [ -f "$SUSFS_LOGFIX_PATCH" ] || fail "SUSFS ENABLE_LOG=n compatibility patch is missing"
+    note "applying the SUSFS ENABLE_LOG=n compatibility fix (strict, fuzz=0)"
+    set +e
+    patch -p1 --fuzz=0 --no-backup-if-mismatch \
+        < "$SUSFS_LOGFIX_PATCH" > "$OUT_DIR/susfs-logfix.log" 2>&1
+    logfix_rc=$?
+    set -e
+    if [ "$logfix_rc" -ne 0 ]; then
+        save_reject_report "SUSFS ENABLE_LOG=n compatibility fix failed" \
+            "$SUSFS_LOGFIX_PATCH" "$OUT_DIR/susfs-logfix.log" "$logfix_rc"
+        fail "SUSFS ENABLE_LOG=n compatibility fix rejected; review the .rej files"
+    fi
+    cat "$OUT_DIR/susfs-logfix.log"
+    SUSFS_LOGFIX_STATUS="applied ($(basename "$SUSFS_LOGFIX_PATCH"))"
+else
+    SUSFS_LOGFIX_STATUS="not needed (upstream already defines the ratelimited macros)"
+fi
+[ "$(grep -c '^#define SUSFS_LOGI_RL' fs/susfs.c)" -ge 2 ] \
+    || fail "SUSFS_LOGI_RL is still missing a logging-disabled definition"
+[ "$(grep -c '^#define SUSFS_LOGE_RL' fs/susfs.c)" -ge 2 ] \
+    || fail "SUSFS_LOGE_RL is still missing a logging-disabled definition"
+
 # ---------------------------------------------------------------------------
 # 4. Apply patch 50 strictly.  Never force or fuzz a rejected patch.
 # ---------------------------------------------------------------------------
@@ -180,23 +234,12 @@ cp -f "$SUSFS_DIR/kernel_patches/include/linux/susfs_def.h" include/linux/susfs_
 # KernelSU/10_enable_susfs_for_ksu.patch is intentionally not applied.
 if ! grep -q 'susfs' fs/Makefile; then
     note "applying SUSFS patch 50 (strict, fuzz=0)"
-    mkdir -p "$REJECT_DIR"
-    rm -rf "${REJECT_DIR:?}"/*
     set +e
     patch -p1 --fuzz=0 --no-backup-if-mismatch < "$SUSFS_PATCH" 2>&1 | tee "$PATCH_LOG"
     patch_rc="${PIPESTATUS[0]}"
     set -e
     if [ "$patch_rc" -ne 0 ]; then
-        {
-            echo "ERROR: SUSFS patch 50 failed with exit code $patch_rc"
-            echo "Patch: $SUSFS_PATCH"
-            echo "Patch output (failed files/hunks):"
-            cat "$PATCH_LOG"
-            echo ""
-            show_rejects
-        } | tee "$OUT_DIR/susfs-rejects.txt" >&2
-        find_rejects -exec cp --parents {} "$REJECT_DIR/" \;
-        cp "$PATCH_LOG" "$REJECT_DIR/" 2>/dev/null || true
+        save_reject_report "SUSFS patch 50 failed" "$SUSFS_PATCH" "$PATCH_LOG" "$patch_rc"
         fail "SUSFS patch 50 rejected; the source tree may have changed"
     fi
 fi
@@ -285,6 +328,7 @@ fi
     echo "SUSFS commit: $SUSFS_COMMIT"
     echo "SUSFS version: $SUSFS_VERSION"
     echo "SUSFS patch: 50_add_susfs_in_gki-android12-5.10.patch"
+    echo "SUSFS log-off fix: $SUSFS_LOGFIX_STATUS"
     echo "SUSFS HAS_MAGIC_MOUNT: $HAS_MAGIC_MOUNT"
     echo "SUSFS SUS_SU: $SUS_SU"
     echo "Hook mode: SUSFS Inline Hook (CONFIG_KSU_SUSFS=y)"

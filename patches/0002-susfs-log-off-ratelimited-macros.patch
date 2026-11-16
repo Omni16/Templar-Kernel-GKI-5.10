@@ -1,0 +1,22 @@
+SUSFS v2.4.0 uses SUSFS_LOGI_RL() unconditionally in fs/susfs.c, but
+defines the ratelimited logging macros only when
+CONFIG_KSU_SUSFS_ENABLE_LOG is enabled.  With logging disabled (the Zyomi16
+configuration) the two call sites fail with -Wimplicit-function-declaration.
+
+This is an upstream compatibility fix, not a change to patch 50.  It supplies
+guarded no-op definitions when the logging-enabled branch did not define the
+macros, so the build keeps CONFIG_KSU_SUSFS_ENABLE_LOG=n without redefining
+anything when logging is enabled.
+
+--- a/fs/susfs.c
++++ b/fs/susfs.c
+@@ -50,2 +50,9 @@
++#ifndef SUSFS_LOGI_RL
++#define SUSFS_LOGI_RL(fmt, ...)
++#endif
++#ifndef SUSFS_LOGE_RL
++#define SUSFS_LOGE_RL(fmt, ...)
++#endif
++
+ /* selinux hide */
+ static DEFINE_MUTEX(susfs_mutex_lock_sus_type);
