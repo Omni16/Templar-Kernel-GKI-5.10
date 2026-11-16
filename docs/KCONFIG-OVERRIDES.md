@@ -1,10 +1,12 @@
 # Kconfig overrides and audit
 
 The build starts from the exact config inside the supplied `boot.img`
-(`configs/base-marble-5.10.236.config`) and applies only
-`configs/zyomi16-marble.fragment`.  `make olddefconfig` is then allowed to
-resolve dependencies.  `scripts/check-config.py` compares every requested
-symbol with the final `.config`.
+(`configs/base-marble-5.10.236.config`) and applies
+`configs/zyomi16-marble.fragment` plus the generated
+`configs/ksu-susfs-extra.fragment` (version-dependent SUSFS options).  `make
+olddefconfig` is then allowed to resolve dependencies.  `scripts/check-config.py`
+compares every requested symbol with the final `.config` and prints all
+`CONFIG_KSU*` values that remain.
 
 ## Kconfig source changes
 
@@ -57,7 +59,15 @@ generated `config-report.md` records them as `off (hidden/absent)`.
   `CONFIG_LTO_CLANG_THIN=y`.
 - **KernelSU/SUSFS**: `CONFIG_KSU=y`, `CONFIG_KSU_SUSFS=y` (SUSFS Inline
   Hook), `CONFIG_KSU_MANUAL_HOOK=n`, `CONFIG_KSU_TRACEPOINT_HOOK=n`,
-  `CONFIG_KPROBES=n`.
+  `CONFIG_KPROBES=n`.  SUSFS features enabled: `KSU_SUSFS_SUS_PATH`,
+  `SUS_MOUNT`, `SUS_KSTAT`, `SPOOF_UNAME`, `HIDE_KSU_SUSFS_SYMBOLS`,
+  `SPOOF_CMDLINE_OR_BOOTCONFIG`, `OPEN_REDIRECT`, `SUS_MAP`; logging is off
+  (`KSU_SUSFS_ENABLE_LOG=n`).  `KSU_SUSFS_HAS_MAGIC_MOUNT` is added only when
+  the BakaSU Kconfig defines it.  `KSU_SUSFS_SUS_SU` is forced off if it
+  exists, because the inline hook and manual-hook/SUS_SU modes must not be
+  combined.  The build fails if olddefconfig turns any requested option off;
+  the full `CONFIG_KSU*` grep is written to `out/ksu-config.txt` and the
+  report.
 - **Audit**: `CONFIG_AUDIT=y`, `CONFIG_AUDITSYSCALL=n`.
 - **Debug**: `CONFIG_DEBUG_KERNEL=n`, `CONFIG_SLUB_DEBUG=n`,
   `CONFIG_FTRACE=n`, `CONFIG_PROFILING=n`, `CONFIG_KASAN=n`.

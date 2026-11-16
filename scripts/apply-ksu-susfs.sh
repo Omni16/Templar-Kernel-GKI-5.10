@@ -1,27 +1,50 @@
 #!/usr/bin/env bash
 #
-# Integrate BakaSU KernelSU + SUSFS into a 5.10 GKI tree.
+# Integrate BakaSU KernelSU (main HEAD) and the latest SUSFS for 5.10 GKI.
 #
-# Hook mode: SUSFS Inline Hook (CONFIG_KSU_SUSFS).  This is BakaSU's
-# manual-hook-like mode and is mutually exclusive with KSU_MANUAL_HOOK and
-# KSU_TRACEPOINT_HOOK.  SUSFS patch 50 supplies the execve/open/stat/read/
-# input/setuid/reboot hooks, so CONFIG_KPROBES can stay disabled.
+# BakaSU is installed with the official setup script from
+# https://bakasu.org/guide/build:
 #
-# The BakaSU source is fetched at a pinned commit.  SUSFS patch 50 and its
-# three source files are vendored in patches/susfs so the build does not
-# depend on a moving GitLab branch.
+#   curl -LSs "https://raw.githubusercontent.com/Baka-SU/BakaSU/main/kernel/setup.sh" | bash
+#
+# The script clones BakaSU into ./KernelSU, checks out main, pulls the latest
+# commit, symlinks drivers/kernelsu and adds the Makefile/Kconfig entries.  The
+# commit and KernelSU version are recorded for the workflow log/artifact name.
+#
+# SUSFS is fetched from the branch that matches this kernel
+# (gki-android12-5.10) at build time.  Its kernel-side patch 50 and the three
+# source/header files are installed exactly as the SUSFS README instructs.
+# The KernelSU-side 10_enable_susfs_for_ksu.patch is deliberately NOT applied:
+# BakaSU already contains the SUSFS support, and applying that patch on top of
+# BakaSU conflicts with its own sucompat/SUSFS code.
+#
+# Hook mode: SUSFS Inline Hook (CONFIG_KSU_SUSFS).  It supplies the
+# execve/open/stat/read/input/setuid/reboot hooks, so CONFIG_KPROBES,
+# CONFIG_KSU_MANUAL_HOOK and CONFIG_KSU_TRACEPOINT_HOOK stay disabled.  Do not
+# add a hand-written manual sucompat hook in this mode.
+#
+# If patch 50 is rejected, the script prints every rejected file and hunk and
+# exits without forcing or fuzzing the patch.
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-BAKASU_COMMIT="${BAKASU_COMMIT:-5d6d1843c8937f5ff2a145dc89a0cf46030ae6f8}"
 BAKASU_REPO="${BAKASU_REPO:-https://github.com/Baka-SU/BakaSU.git}"
-KSU_DIR="${KSU_DIR:-$ROOT/KernelSU}"
-SUSFS_DIR="${SUSFS_DIR:-$ROOT/patches/susfs}"
+BAKASU_SETUP_URL="${BAKASU_SETUP_URL:-https://raw.githubusercontent.com/Baka-SU/BakaSU/main/kernel/setup.sh}"
+SUSFS_REPO="${SUSFS_REPO:-https://gitlab.com/simonpunk/susfs4ksu.git}"
+SUSFS_BRANCH="${SUSFS_BRANCH:-gki-android12-5.10}"
+KSU_DIR="$ROOT/KernelSU"
+SUSFS_DIR="${SUSFS_DIR:-$ROOT/susfs4ksu}"
+SUSFS_EXTRA="${SUSFS_EXTRA:-$ROOT/configs/ksu-susfs-extra.fragment}"
 KCONFIG_PATCH="${KCONFIG_PATCH:-$ROOT/patches/0001-kconfig-allow-zyomi16-options.patch}"
 INFO_FILE="${INFO_FILE:-$ROOT/integration-info.txt}"
+OUT_DIR="${OUT_DIR:-$ROOT/out}"
+PATCH_LOG="$OUT_DIR/susfs-patch.log"
+SETUP_LOG="$OUT_DIR/bakasu-setup.log"
+REJECT_DIR="$ROOT/susfs-rejects"
+REJECT_NAME="$(basename "$REJECT_DIR")"
 
 fail() {
     echo "ERROR: $*" >&2
@@ -32,11 +55,30 @@ note() {
     echo "==> $*"
 }
 
+find_rejects() {
+    # Do not descend into the collected reject copies; otherwise `find` sees
+    # the files it is copying and creates nested susfs-rejects/susfs-rejects/.
+    find . -path "./$REJECT_NAME" -prune -o -name '*.rej' "$@"
+}
+
+show_rejects() {
+    local rejects
+    rejects="$(find_rejects -print)"
+    if [ -n "$rejects" ]; then
+        echo "Rejected files and hunks:" >&2
+        while IFS= read -r rej; do
+            echo "--- $rej ---" >&2
+            cat "$rej" >&2
+        done <<< "$rejects"
+    fi
+}
+
 check_no_rejects() {
     local rejects
-    rejects="$(find . -name '*.rej' -print -quit)"
+    rejects="$(find_rejects -print -quit)"
     if [ -n "$rejects" ]; then
-        find . -name '*.rej' -print >&2
+        find_rejects -print >&2
+        show_rejects
         fail "patch left reject files in the source tree"
     fi
 }
@@ -45,60 +87,42 @@ check_no_rejects() {
 grep -q '^VERSION = 5$' Makefile || fail "this script expects a 5.x kernel"
 grep -q '^PATCHLEVEL = 10$' Makefile || fail "this script expects a 5.10 kernel"
 
+mkdir -p "$OUT_DIR"
+
 # ---------------------------------------------------------------------------
-# 1. BakaSU (KernelSU)
+# 1. BakaSU main HEAD via the official setup script
 # ---------------------------------------------------------------------------
-if [ ! -d "$KSU_DIR/.git" ]; then
-    note "cloning BakaSU at $BAKASU_COMMIT"
-    rm -rf "$KSU_DIR"
-    git clone --filter=blob:none --no-checkout --single-branch \
-        "$BAKASU_REPO" "$KSU_DIR"
-fi
+note "running the official BakaSU setup script (main branch)"
+curl -fLSs --retry 3 --retry-delay 5 -o "$OUT_DIR/bakasu-setup.sh" "$BAKASU_SETUP_URL"
+sha256sum "$OUT_DIR/bakasu-setup.sh" | tee "$OUT_DIR/bakasu-setup.sha256"
+bash "$OUT_DIR/bakasu-setup.sh" 2>&1 | tee "$SETUP_LOG"
 
-git -C "$KSU_DIR" sparse-checkout init --cone
-# kernel/include/uapi is a symlink to the repo's top-level uapi/ directory,
-# so the sparse checkout must include both.
-git -C "$KSU_DIR" sparse-checkout set kernel uapi
-
-if ! git -C "$KSU_DIR" cat-file -e "${BAKASU_COMMIT}^{commit}" 2>/dev/null; then
-    note "fetching pinned BakaSU commit"
-    git -C "$KSU_DIR" fetch --tags --force origin "$BAKASU_COMMIT"
-fi
-
-git -C "$KSU_DIR" checkout --force "$BAKASU_COMMIT"
-[ "$(git -C "$KSU_DIR" rev-parse HEAD)" = "$BAKASU_COMMIT" ] \
-    || fail "BakaSU checkout is not at the pinned commit"
+[ -d "$KSU_DIR/.git" ] || fail "the official setup script did not create KernelSU/.git"
+[ -L drivers/kernelsu ] || fail "the official setup script did not create drivers/kernelsu"
 [ -f "$KSU_DIR/kernel/Kbuild" ] || fail "BakaSU kernel/Kbuild is missing"
 [ -f "$KSU_DIR/kernel/Kconfig" ] || fail "BakaSU kernel/Kconfig is missing"
+
+KSU_BRANCH="$(git -C "$KSU_DIR" branch --show-current)"
+[ "$KSU_BRANCH" = "main" ] || fail "BakaSU is on '$KSU_BRANCH', expected main"
+[ -z "$(git -C "$KSU_DIR" status --porcelain --untracked-files=no)" ] \
+    || fail "BakaSU worktree has tracked modifications after the official setup script"
+
+BAKASU_COMMIT="$(git -C "$KSU_DIR" rev-parse HEAD)"
+BAKASU_SHORT="${BAKASU_COMMIT:0:8}"
+KSU_COMMIT_COUNT="$(git -C "$KSU_DIR" rev-list --count HEAD)"
+KSU_VERSION="$((30000 + KSU_COMMIT_COUNT + 700))"
+KSU_TAG="$(git -C "$KSU_DIR" describe --abbrev=0 --tags 2>/dev/null || echo unknown)"
+# BakaSU's Kconfig default is KSU_FULL_NAME_FORMAT="%TAG_NAME%-%COMMIT_SHA%".
+KSU_VERSION_FULL="${KSU_TAG}-${BAKASU_SHORT}"
+
+[ "$(git -C "$KSU_DIR" rev-parse HEAD)" = "$BAKASU_COMMIT" ] \
+    || fail "BakaSU checkout changed while recording its version"
 for header in supercall.h app_profile.h feature.h selinux.h sulog.h ksu.h; do
-    [ -f "$KSU_DIR/uapi/$header" ] \
-        || fail "BakaSU uapi/$header is missing (sparse checkout must include uapi)"
+    [ -f "$KSU_DIR/uapi/$header" ] || fail "BakaSU uapi/$header is missing"
 done
 
-# BakaSU's Kbuild insists on a real git repository at KernelSU/.git.  The
-# sparse clone above keeps that requirement while only checking out kernel/.
-if [ -e drivers/kernelsu ] && [ ! -L drivers/kernelsu ]; then
-    fail "drivers/kernelsu exists and is not a symlink"
-fi
-ln -sfn ../KernelSU/kernel drivers/kernelsu
-
-if ! grep -q 'CONFIG_KSU.*kernelsu' drivers/Makefile; then
-    printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> drivers/Makefile
-fi
-
-if ! grep -q 'source "drivers/kernelsu/Kconfig"' drivers/Kconfig; then
-    python3 - <<'PY'
-from pathlib import Path
-
-path = Path("drivers/Kconfig")
-lines = path.read_text().splitlines()
-positions = [i for i, line in enumerate(lines) if line.strip() == "endmenu"]
-if not positions:
-    raise SystemExit("drivers/Kconfig: no endmenu found")
-lines.insert(positions[-1], 'source "drivers/kernelsu/Kconfig"')
-path.write_text("\n".join(lines) + "\n")
-PY
-fi
+note "BakaSU main HEAD: $BAKASU_COMMIT"
+note "KernelSU version code: $KSU_VERSION ($KSU_VERSION_FULL)"
 
 # ---------------------------------------------------------------------------
 # 2. Small Kconfig changes needed to make the requested options reachable
@@ -107,7 +131,14 @@ fi
 # EXPERT is disabled.  Both are made user-selectable so the fragment can turn
 # them off without enabling DEBUG_KERNEL/EXPERT.
 if ! grep -A3 '^config AUDITSYSCALL$' init/Kconfig | grep -q 'bool "Audit syscall support"'; then
-    patch -p1 --forward --fuzz=3 --no-backup-if-mismatch < "$KCONFIG_PATCH" || true
+    note "applying the Zyomi16 Kconfig patch"
+    if ! patch -p1 --fuzz=0 --no-backup-if-mismatch \
+            < "$KCONFIG_PATCH" > "$OUT_DIR/kconfig-patch.log" 2>&1; then
+        cat "$OUT_DIR/kconfig-patch.log" >&2
+        show_rejects
+        fail "Zyomi16 Kconfig patch failed"
+    fi
+    cat "$OUT_DIR/kconfig-patch.log"
 fi
 
 grep -A3 '^config AUDITSYSCALL$' init/Kconfig | grep -q 'bool "Audit syscall support"' \
@@ -119,21 +150,55 @@ grep -A3 '^config KALLSYMS_ALL$' init/Kconfig | grep -q 'depends on KALLSYMS$' \
 check_no_rejects
 
 # ---------------------------------------------------------------------------
-# 3. SUSFS
+# 3. Latest SUSFS for gki-android12-5.10
 # ---------------------------------------------------------------------------
-[ -f "$SUSFS_DIR/50_add_susfs_in_gki-android12-5.10.patch" ] \
-    || fail "SUSFS patch is missing"
-[ -f "$SUSFS_DIR/fs/susfs.c" ] || fail "SUSFS fs/susfs.c is missing"
-[ -f "$SUSFS_DIR/include/linux/susfs.h" ] || fail "SUSFS susfs.h is missing"
-[ -f "$SUSFS_DIR/include/linux/susfs_def.h" ] || fail "SUSFS susfs_def.h is missing"
+note "fetching SUSFS $SUSFS_BRANCH from $SUSFS_REPO"
+rm -rf "$SUSFS_DIR"
+git clone --depth 1 --branch "$SUSFS_BRANCH" "$SUSFS_REPO" "$SUSFS_DIR" \
+    2>&1 | tee "$OUT_DIR/susfs-clone.log"
 
-cp -f "$SUSFS_DIR/fs/susfs.c" fs/susfs.c
-cp -f "$SUSFS_DIR/include/linux/susfs.h" include/linux/susfs.h
-cp -f "$SUSFS_DIR/include/linux/susfs_def.h" include/linux/susfs_def.h
+SUSFS_COMMIT="$(git -C "$SUSFS_DIR" rev-parse HEAD)"
+SUSFS_VERSION="$(sed -n 's/^#define SUSFS_VERSION "\(.*\)"/\1/p' \
+    "$SUSFS_DIR/kernel_patches/include/linux/susfs.h")"
+[ -n "$SUSFS_VERSION" ] || fail "could not read SUSFS_VERSION from the SUSFS tree"
+note "SUSFS $SUSFS_VERSION at $SUSFS_COMMIT"
 
+SUSFS_PATCH="$SUSFS_DIR/kernel_patches/50_add_susfs_in_gki-android12-5.10.patch"
+[ -f "$SUSFS_PATCH" ] || fail "SUSFS patch 50 is missing"
+[ -f "$SUSFS_DIR/kernel_patches/fs/susfs.c" ] || fail "SUSFS fs/susfs.c is missing"
+[ -f "$SUSFS_DIR/kernel_patches/include/linux/susfs.h" ] || fail "SUSFS susfs.h is missing"
+[ -f "$SUSFS_DIR/kernel_patches/include/linux/susfs_def.h" ] || fail "SUSFS susfs_def.h is missing"
+
+cp -f "$SUSFS_DIR/kernel_patches/fs/susfs.c" fs/susfs.c
+cp -f "$SUSFS_DIR/kernel_patches/include/linux/susfs.h" include/linux/susfs.h
+cp -f "$SUSFS_DIR/kernel_patches/include/linux/susfs_def.h" include/linux/susfs_def.h
+
+# ---------------------------------------------------------------------------
+# 4. Apply patch 50 strictly.  Never force or fuzz a rejected patch.
+# ---------------------------------------------------------------------------
+# BakaSU already has the SUSFS/KernelSU bridge, so the SUSFS
+# KernelSU/10_enable_susfs_for_ksu.patch is intentionally not applied.
 if ! grep -q 'susfs' fs/Makefile; then
-    patch -p1 --forward --fuzz=3 --no-backup-if-mismatch \
-        < "$SUSFS_DIR/50_add_susfs_in_gki-android12-5.10.patch" || true
+    note "applying SUSFS patch 50 (strict, fuzz=0)"
+    mkdir -p "$REJECT_DIR"
+    rm -rf "${REJECT_DIR:?}"/*
+    set +e
+    patch -p1 --fuzz=0 --no-backup-if-mismatch < "$SUSFS_PATCH" 2>&1 | tee "$PATCH_LOG"
+    patch_rc="${PIPESTATUS[0]}"
+    set -e
+    if [ "$patch_rc" -ne 0 ]; then
+        {
+            echo "ERROR: SUSFS patch 50 failed with exit code $patch_rc"
+            echo "Patch: $SUSFS_PATCH"
+            echo "Patch output (failed files/hunks):"
+            cat "$PATCH_LOG"
+            echo ""
+            show_rejects
+        } | tee "$OUT_DIR/susfs-rejects.txt" >&2
+        find_rejects -exec cp --parents {} "$REJECT_DIR/" \;
+        cp "$PATCH_LOG" "$REJECT_DIR/" 2>/dev/null || true
+        fail "SUSFS patch 50 rejected; the source tree may have changed"
+    fi
 fi
 
 grep -q 'susfs' fs/Makefile || fail "SUSFS fs/Makefile entry is missing"
@@ -141,7 +206,7 @@ grep -q 'susfs_init' fs/susfs.c || fail "SUSFS source was not installed"
 check_no_rejects
 
 # ---------------------------------------------------------------------------
-# 4. Verify the hooks BakaSU's SUSFS inline mode requires
+# 5. Verify the hooks BakaSU's SUSFS inline mode requires
 # ---------------------------------------------------------------------------
 # BakaSU checks these at compile time.  Fail early with a readable error if a
 # source branch has moved or the patch was only partially applied.
@@ -170,12 +235,62 @@ for symbol in ksu_vfs_read_hook ksu_input_hook ksu_execveat_hook ksu_init_rc_hoo
     fi
 done
 
+# ---------------------------------------------------------------------------
+# 6. Optional SUSFS options that depend on the BakaSU version
+# ---------------------------------------------------------------------------
+mkdir -p "$(dirname "$SUSFS_EXTRA")"
 {
+    echo "# Generated by scripts/apply-ksu-susfs.sh from BakaSU main."
+    if grep -qx 'config KSU_SUSFS_HAS_MAGIC_MOUNT' "$KSU_DIR/kernel/Kconfig"; then
+        echo 'CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y'
+    else
+        echo '# CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT does not exist in this BakaSU tree'
+    fi
+    if grep -qx 'config KSU_SUSFS_SUS_SU' "$KSU_DIR/kernel/Kconfig"; then
+        # SUSFS inline hook mode: SUS_SU must stay off if the symbol exists.
+        echo '# CONFIG_KSU_SUSFS_SUS_SU is not set'
+    else
+        echo '# CONFIG_KSU_SUSFS_SUS_SU does not exist in this BakaSU tree'
+    fi
+} > "$SUSFS_EXTRA"
+
+if grep -qx 'config KSU_SUSFS_HAS_MAGIC_MOUNT' "$KSU_DIR/kernel/Kconfig"; then
+    HAS_MAGIC_MOUNT="present, requested y"
+else
+    HAS_MAGIC_MOUNT="not present in this BakaSU tree"
+fi
+
+if grep -qx 'config KSU_SUSFS_SUS_SU' "$KSU_DIR/kernel/Kconfig"; then
+    SUS_SU="present, forced n (inline hook mode)"
+else
+    SUS_SU="not present in this BakaSU tree"
+fi
+
+# ---------------------------------------------------------------------------
+# 7. Integration record
+# ---------------------------------------------------------------------------
+{
+    echo "BakaSU repo: $BAKASU_REPO"
+    echo "BakaSU branch: main"
     echo "BakaSU commit: $BAKASU_COMMIT"
-    echo "BakaSU describe: $(git -C "$KSU_DIR" describe --tags --always 2>/dev/null || echo unknown)"
-    echo "BakaSU version code: $(($(git -C "$KSU_DIR" rev-list --count HEAD) + 30700))"
-    echo "SUSFS patch: patches/susfs/50_add_susfs_in_gki-android12-5.10.patch"
-    echo "SUSFS mode: CONFIG_KSU_SUSFS (inline hooks, no kprobes)"
+    echo "BakaSU commit short: $BAKASU_SHORT"
+    echo "BakaSU setup script: $BAKASU_SETUP_URL"
+    echo "BakaSU setup script sha256: $(cut -d' ' -f1 "$OUT_DIR/bakasu-setup.sha256")"
+    echo "KernelSU version code: $KSU_VERSION"
+    echo "KernelSU version full: $KSU_VERSION_FULL"
+    echo "KernelSU tag: $KSU_TAG"
+    echo "KernelSU commit count: $KSU_COMMIT_COUNT"
+    echo "SUSFS repo: $SUSFS_REPO"
+    echo "SUSFS branch: $SUSFS_BRANCH"
+    echo "SUSFS commit: $SUSFS_COMMIT"
+    echo "SUSFS version: $SUSFS_VERSION"
+    echo "SUSFS patch: 50_add_susfs_in_gki-android12-5.10.patch"
+    echo "SUSFS HAS_MAGIC_MOUNT: $HAS_MAGIC_MOUNT"
+    echo "SUSFS SUS_SU: $SUS_SU"
+    echo "Hook mode: SUSFS Inline Hook (CONFIG_KSU_SUSFS=y)"
+    echo "Manual hook: disabled (CONFIG_KSU_MANUAL_HOOK=n)"
+    echo "Tracepoint hook: disabled (CONFIG_KSU_TRACEPOINT_HOOK=n)"
+    echo "KPROBES: disabled"
     echo "KernelSU hooks: OK"
 } | tee "$INFO_FILE"
 

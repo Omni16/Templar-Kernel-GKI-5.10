@@ -39,6 +39,15 @@ CRITICAL = [
     "CONFIG_KALLSYMS_ALL",
     "CONFIG_KSU",
     "CONFIG_KSU_SUSFS",
+    "CONFIG_KSU_SUSFS_SUS_PATH",
+    "CONFIG_KSU_SUSFS_SUS_MOUNT",
+    "CONFIG_KSU_SUSFS_SUS_KSTAT",
+    "CONFIG_KSU_SUSFS_SPOOF_UNAME",
+    "CONFIG_KSU_SUSFS_ENABLE_LOG",
+    "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS",
+    "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG",
+    "CONFIG_KSU_SUSFS_OPEN_REDIRECT",
+    "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT",
     "CONFIG_KSU_MANUAL_HOOK",
     "CONFIG_KSU_TRACEPOINT_HOOK",
     "CONFIG_KPROBES",
@@ -200,6 +209,30 @@ def main() -> int:
     lines.append("| Symbol | Requested | Final | Result |")
     lines.append("|---|---:|---:|---|")
     for key, req, got, status in critical_rows:
+        lines.append(f"| `{key}` | {req or '-'} | {got or ABSENT} | {status} |")
+    lines.append("")
+
+    lines.append("## KernelSU / SUSFS options")
+    lines.append("")
+    lines.append("| Symbol | Requested | Final | Result |")
+    lines.append("|---|---:|---:|---|")
+    ksu_keys = sorted(
+        {k for k in wanted if k.startswith("CONFIG_KSU")}
+        | {k for k in final if k.startswith("CONFIG_KSU")}
+    )
+    if not ksu_keys:
+        lines.append("| - | - | - | no KSU options in this config |")
+    for key in ksu_keys:
+        req = wanted.get(key)
+        got = final.get(key)
+        if req is None:
+            status = "not requested"
+        elif req == "n":
+            status = "ok" if got in (None, "n") else "CHANGED"
+        elif got is None:
+            status = "MISSING (requested on)"
+        else:
+            status = "ok" if got == req else "CHANGED"
         lines.append(f"| `{key}` | {req or '-'} | {got or ABSENT} | {status} |")
     lines.append("")
 

@@ -169,4 +169,9 @@ sphinx_*/
 /tools/magiskboot
 /KernelSU/
 /drivers/kernelsu
+/susfs4ksu/
+/susfs-rejects/
+/.integration-preserve/
+/scripts/__pycache__/
 /integration-info.txt
+/configs/ksu-susfs-extra.fragment

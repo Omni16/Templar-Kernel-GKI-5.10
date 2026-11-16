@@ -22,7 +22,6 @@ the POCO F5 / Redmi Note 12 Turbo (`marble`, `marblein`, SM7475), with:
 | [`docs/ROLLBACK.md`](docs/ROLLBACK.md) | Exact fastboot rollback/recovery commands. |
 | [`docs/device-inputs-release.md`](docs/device-inputs-release.md) | Input image hashes and the `device-inputs-v1` release. |
 | [`configs/README.md`](configs/README.md) | Base config, fragment and tree-specific notes. |
-| [`patches/susfs/README.md`](patches/susfs/README.md) | Pinned SUSFS patch provenance. |
 | [`tweaks/README.md`](tweaks/README.md) | Separate userspace tweaks module. |
 
 ## Build
@@ -49,6 +48,9 @@ A successful run uploads:
 - `config-...txt` and `config-report-....md` — final config and Kconfig audit.
 - `module-compat-....md/.csv` — vendor vermagic/CRC comparison.
 - `Zyomi16-Tweaks-v1.zip` — separate tweaks module.
+- `ReSukiSU_..._arm64-v8a-release.apk` — latest BakaSU manager APK
+  (pre-releases included) plus `manager-info.txt` with its version and the
+  `sidex15/ksu_module_susfs` link.
 - `SHA256SUMS` and `README.txt`.
 
 ## Important warning
@@ -66,8 +68,16 @@ disabled (or the image signed) for them to boot.  The marble DTB remains in
 
 ## KernelSU integration
 
-- BakaSU: `5d6d1843c8937f5ff2a145dc89a0cf46030ae6f8`.
-- SUSFS: `784ac9e6fd49bb02499b5b60c57ccc9d0c680204` (patch 50 and sources).
+- BakaSU: **`main` HEAD at build time**, via the official setup script from
+  <https://bakasu.org/guide/build>.  The commit and KernelSU version are
+  recorded in `integration-info.txt`, the job log and the artifact name.
+- SUSFS: latest `gki-android12-5.10` branch at build time (v2.4.0 at the time
+  of writing), patch 50 plus its source/header files.
 - `CONFIG_KSU=y`, `CONFIG_KSU_SUSFS=y`, `CONFIG_KSU_MANUAL_HOOK=n`,
   `CONFIG_KSU_TRACEPOINT_HOOK=n`, `CONFIG_KPROBES=n`.
-- The integration script verifies every required hook before the build.
+- The integration script verifies every required hook before the build.  A
+  rejected SUSFS hunk stops the build and is reported with the file/hunk and
+  `.rej` files instead of being forced.
+- The manager APK is downloaded from the latest BakaSU GitHub release,
+  including pre-releases; the userspace module is
+  <https://github.com/sidex15/ksu_module_susfs>.

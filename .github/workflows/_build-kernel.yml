@@ -36,8 +36,9 @@ jobs:
       CLANG_VERSION: r416183b
       CLANG_URL: https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/tags/android-12.0.0_r1/clang-r416183b.tar.gz
 
-      BAKASU_COMMIT: 5d6d1843c8937f5ff2a145dc89a0cf46030ae6f8
       BAKASU_REPO: https://github.com/Baka-SU/BakaSU.git
+      SUSFS_BRANCH: gki-android12-5.10
+      SUSFS_REPO: https://gitlab.com/simonpunk/susfs4ksu.git
 
       MAGISK_APK_SHA256: f511bd33d3242911d05b0939f910a3133ef2ba0e0ff1e098128f9f3cd0c16610
       ANYKERNEL3_COMMIT: 41f04bdb4ee30a44e429c2c1131d5e8bb32b15f1
@@ -90,7 +91,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             bc bison flex libelf-dev libssl-dev libncurses-dev \
             build-essential ccache cpio kmod lz4 zstd xz-utils \
-            python3 python3-pip rsync zip unzip erofs-utils \
+            python3 python3-pip rsync zip unzip erofs-utils jq \
             file git curl ca-certificates
 
       - name: Restore ccache
@@ -173,6 +174,7 @@ jobs:
           tools/magiskboot --help >/dev/null 2>&1 || true
 
       - name: Integrate BakaSU and SUSFS
+        id: integrate
         shell: bash
         run: |
           set -euo pipefail
@@ -183,6 +185,18 @@ jobs:
           chmod +x tweaks/service.d/*.sh
           INFO_FILE="$GITHUB_WORKSPACE/integration-info.txt" \
             bash scripts/apply-ksu-susfs.sh
+
+          BAKASU_SHORT="$(sed -n 's/^BakaSU commit short: //p' "$GITHUB_WORKSPACE/integration-info.txt")"
+          KSU_VERSION="$(sed -n 's/^KernelSU version code: //p' "$GITHUB_WORKSPACE/integration-info.txt")"
+          SUSFS_VERSION="$(sed -n 's/^SUSFS version: //p' "$GITHUB_WORKSPACE/integration-info.txt")"
+          [ -n "$BAKASU_SHORT" ] && [ -n "$KSU_VERSION" ] && [ -n "$SUSFS_VERSION" ] \
+            || { echo "ERROR: integration-info.txt is missing version fields" >&2; exit 1; }
+          {
+            echo "bakasu_short=$BAKASU_SHORT"
+            echo "ksu_version=$KSU_VERSION"
+            echo "susfs_version=$SUSFS_VERSION"
+          } >> "$GITHUB_OUTPUT"
+          echo "BakaSU ${BAKASU_SHORT}, KernelSU version ${KSU_VERSION}, SUSFS ${SUSFS_VERSION}"
 
       - name: Generate and audit configuration
         shell: bash
@@ -273,22 +287,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          OUT_DIR="$GITHUB_WORKSPACE/out"
+          export OUT_DIR="$GITHUB_WORKSPACE/out"
           KERNEL_RELEASE="$(cat "$OUT_DIR/kernel-release.txt")"
-          OUT_DIR="$OUT_DIR" \
-          LTO_MODE="$LTO_MODE" \
-          KERNEL_RELEASE="$KERNEL_RELEASE" \
-          KERNEL_IMAGE="$OUT_DIR/arch/arm64/boot/Image" \
-          BOOT_IMAGE="$GITHUB_WORKSPACE/device-inputs/boot.img" \
-          ARTIFACT_DIR="$GITHUB_WORKSPACE/artifacts" \
-          WORK_DIR="$GITHUB_WORKSPACE/package-work" \
-          MAGISKBOOT="$GITHUB_WORKSPACE/tools/magiskboot" \
-          MAGISK_APK="$GITHUB_WORKSPACE/tools/Magisk-v27.0.apk" \
-          ANYKERNEL3_COMMIT="$ANYKERNEL3_COMMIT" \
-          ANYKERNEL3_SHA256="$ANYKERNEL3_SHA256" \
-          RUN_NUMBER="$GITHUB_RUN_NUMBER" \
-          GITHUB_SHA="$GITHUB_SHA" \
-            bash scripts/package.sh
+          export KERNEL_RELEASE
+          export KERNEL_IMAGE="$OUT_DIR/arch/arm64/boot/Image"
+          export BOOT_IMAGE="$GITHUB_WORKSPACE/device-inputs/boot.img"
+          export ARTIFACT_DIR="$GITHUB_WORKSPACE/artifacts"
+          export WORK_DIR="$GITHUB_WORKSPACE/package-work"
+          export MAGISKBOOT="$GITHUB_WORKSPACE/tools/magiskboot"
+          export MAGISK_APK="$GITHUB_WORKSPACE/tools/Magisk-v27.0.apk"
+          export ANYKERNEL3_COMMIT ANYKERNEL3_SHA256
+          export RUN_NUMBER="$GITHUB_RUN_NUMBER"
+          export GITHUB_SHA
+          bash scripts/package.sh
 
       - name: Upload config audit
         if: always()
@@ -305,15 +316,84 @@ jobs:
             out/kernel-release.txt
             out/merge-config.log
             out/olddefconfig.log
+            out/ksu-config.txt
+            out/bakasu-setup.sh
+            out/bakasu-setup.sha256
+            configs/ksu-susfs-extra.fragment
             integration-info.txt
           if-no-files-found: warn
           retention-days: 30
+
+      - name: Add BakaSU manager APK
+        if: ${{ !inputs.config_only && success() }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ART="$GITHUB_WORKSPACE/artifacts"
+          mkdir -p "$ART"
+
+          releases="$(gh api 'repos/Baka-SU/BakaSU/releases?per_page=100')"
+          # Newest published release, including pre-releases.
+          tag="$(jq -r '[.[] | select(.draft == false)] | sort_by(.published_at) | reverse | .[0].tag_name' <<<"$releases")"
+          [ -n "$tag" ] && [ "$tag" != "null" ] \
+            || { echo "ERROR: no BakaSU release found" >&2; exit 1; }
+          release="$(jq -c --arg tag "$tag" '.[] | select(.tag_name == $tag)' <<<"$releases")"
+
+          pick_asset() {
+            jq -c --arg re "$1" '[.assets[] | select(.name | test($re; "i"))] | first' <<<"$release"
+          }
+          asset="$(pick_asset 'arm64-v8a.*\.apk$')"
+          [ "$asset" = "null" ] && asset="$(pick_asset 'universal.*\.apk$')"
+          [ "$asset" = "null" ] && asset="$(pick_asset '\.apk$')"
+          [ "$asset" != "null" ] \
+            || { echo "ERROR: no APK asset in BakaSU release $tag" >&2; exit 1; }
+
+          apk_name="$(jq -r '.name' <<<"$asset")"
+          apk_url="$(jq -r '.browser_download_url' <<<"$asset")"
+          published="$(jq -r '.published_at' <<<"$release")"
+          prerelease="$(jq -r '.prerelease' <<<"$release")"
+
+          echo "==> downloading BakaSU manager $tag: $apk_name"
+          curl -fL --retry 3 --retry-delay 5 -o "$ART/$apk_name" "$apk_url"
+          apk_sha="$(sha256sum "$ART/$apk_name" | cut -d' ' -f1)"
+
+          {
+            echo "BakaSU manager release: $tag"
+            echo "Pre-release: $prerelease"
+            echo "Published: $published"
+            echo "Asset: $apk_name"
+            echo "Asset SHA256: $apk_sha"
+            echo "Asset URL: $apk_url"
+            echo "Release page: https://github.com/Baka-SU/BakaSU/releases/tag/$tag"
+            echo "SUSFS userspace module: https://github.com/sidex15/ksu_module_susfs"
+            echo "  (redirects to https://github.com/sidex15/susfs4ksu-module)"
+          } | tee "$ART/manager-info.txt"
+
+          cat >> "$ART/README.txt" <<EOF
+
+          BakaSU manager
+          --------------
+          ${apk_name}
+              Latest BakaSU manager release, including pre-releases: ${tag}
+              Source: https://github.com/Baka-SU/BakaSU/releases/tag/${tag}
+              SHA256: ${apk_sha}
+              SUSFS userspace module: https://github.com/sidex15/ksu_module_susfs
+          EOF
+
+          (
+            cd "$ART"
+            find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\n' | sort \
+              | while IFS= read -r file; do sha256sum "$file"; done > SHA256SUMS
+          )
+          echo "==> manager APK added to artifacts"
 
       - name: Upload build artifacts
         if: ${{ !inputs.config_only && success() }}
         uses: actions/upload-artifact@v4
         with:
-          name: zyomi16-marble-${{ inputs.lto }}-r${{ github.run_number }}-${{ github.run_attempt }}
+          name: zyomi16-marble-${{ inputs.lto }}-b${{ steps.integrate.outputs.bakasu_short }}-ksu${{ steps.integrate.outputs.ksu_version }}-susfs${{ steps.integrate.outputs.susfs_version }}-r${{ github.run_number }}-${{ github.run_attempt }}
           path: artifacts/
           if-no-files-found: error
           retention-days: 30
@@ -329,6 +409,11 @@ jobs:
             out/build-time.txt
             out/.config
             out/config-report.md
+            out/susfs-patch.log
+            out/susfs-rejects.txt
+            configs/ksu-susfs-extra.fragment
+            integration-info.txt
+            susfs-rejects/
           if-no-files-found: ignore
           retention-days: 14
 
@@ -363,3 +448,32 @@ jobs:
               echo ""
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Print integration summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT_DIR="$GITHUB_WORKSPACE/out"
+          INFO="$GITHUB_WORKSPACE/integration-info.txt"
+          {
+            echo ""
+            echo "## BakaSU / SUSFS integration summary"
+            echo ""
+            if [ -s "$INFO" ]; then
+              grep -E '^(BakaSU commit:|KernelSU version code:|KernelSU version full:|SUSFS commit:|SUSFS version:|Hook mode:|Manual hook:|Tracepoint hook:|KPROBES:|SUSFS HAS_MAGIC_MOUNT:|SUSFS SUS_SU:)' "$INFO" \
+                | sed 's/^/- /' || true
+            else
+              echo "- integration-info.txt missing"
+            fi
+            echo ""
+            echo "### CONFIG_KSU* in the final .config"
+            echo ""
+            echo '```'
+            if [ -s "$OUT_DIR/.config" ]; then
+              grep -E '^(CONFIG_KSU|# CONFIG_KSU)' "$OUT_DIR/.config" || true
+            else
+              echo "no final .config"
+            fi
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"

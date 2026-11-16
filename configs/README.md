@@ -15,6 +15,11 @@ fragment.
 - Full LTO (`LTO`, `LTO_CLANG`, `LTO_CLANG_FULL`), local version `-Zyomi16`.
 - BakaSU `KSU=y`, `KSU_SUSFS=y` (SUSFS Inline Hook), with
   `KSU_TRACEPOINT_HOOK=n` and `KSU_MANUAL_HOOK=n`.
+- SUSFS features: `KSU_SUSFS_SUS_PATH`, `SUS_MOUNT`, `SUS_KSTAT`,
+  `SPOOF_UNAME`, `HIDE_KSU_SUSFS_SYMBOLS`, `SPOOF_CMDLINE_OR_BOOTCONFIG`,
+  `OPEN_REDIRECT` and `SUS_MAP` = `y`; `KSU_SUSFS_ENABLE_LOG=n`.
+  `KSU_SUSFS_HAS_MAGIC_MOUNT` is requested only when the BakaSU tree defines
+  it; `KSU_SUSFS_SUS_SU` is forced off if it exists (inline-hook mode).
 - `AUDIT=y`, `AUDITSYSCALL=n`.
 - `DEBUG_KERNEL`, `DEBUG_INFO`, `SLUB_DEBUG`, `SCHED_DEBUG`, `FTRACE`,
   `PROFILING`, `KPROBES` and `KASAN` off.
@@ -41,6 +46,16 @@ AOSP build host:
 
 The requested fragment remains 248 symbols; `configure-kernel.sh` merges this
 file separately and the generated report lists it under **Build fixes**.
+
+## Version-specific SUSFS options
+
+`apply-ksu-susfs.sh` writes `ksu-susfs-extra.fragment` after inspecting the
+BakaSU Kconfig.  It adds `CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y` only if that
+symbol exists, and writes `# CONFIG_KSU_SUSFS_SUS_SU is not set` only if that
+symbol exists.  This keeps the static 248-symbol fragment valid as BakaSU
+changes, without silently claiming an option that the tree does not have.
+`configure-kernel.sh` merges the generated file (when it contains real
+symbols) and audits every option that was requested on.
 
 ## Small Kconfig patch
 

@@ -72,17 +72,25 @@ fastboot flags and rollback sequence.
 
 ## KernelSU / SUSFS mode
 
-- BakaSU commit `5d6d1843c8937f5ff2a145dc89a0cf46030ae6f8`.
+- BakaSU **`main` HEAD at build time**, installed with the official
+  `kernel/setup.sh` from <https://bakasu.org/guide/build>.  The exact commit,
+  KernelSU version code and full version are in `integration-info.txt`, the job
+  log and the artifact name; there is no stale pinned commit.
 - `CONFIG_KSU=y`, `CONFIG_KSU_SUSFS=y` (BakaSU's "SUSFS Inline Hook").
 - `CONFIG_KSU_MANUAL_HOOK=n`, `CONFIG_KSU_TRACEPOINT_HOOK=n`,
   `CONFIG_KPROBES=n`.
-- SUSFS patch 50 from `gki-android12-5.10` commit
-  `784ac9e6fd49bb02499b5b60c57ccc9d0c680204` supplies the execve, faccessat,
-  stat, read, input, setuid and reboot hooks.  The integration script verifies
-  each hook after patching.
+- SUSFS is fetched from the latest `gki-android12-5.10` branch at build time
+  (v2.4.0 at the time of writing).  Patch 50 supplies the execve, faccessat,
+  stat, read, input, setuid and reboot hooks; the integration script verifies
+  each hook after patching.  If a hunk is rejected, the build stops and uploads
+  the patch log plus the `.rej` files under `susfs-rejects/`.
+- `CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT` is enabled only if the BakaSU Kconfig
+  defines it.  `CONFIG_KSU_SUSFS_SUS_SU` is forced off if it exists, because
+  the SUSFS inline-hook mode and manual-hook/SUS_SU mode must not be combined.
 
 Do **not** apply `KernelSU/10_enable_susfs_for_ksu.patch`; BakaSU already has
-its own SUSFS integration and the extra patch is not part of this build.
+its own SUSFS integration and the extra patch is not part of this build.  Do
+not add a hand-written manual sucompat hook in inline-hook mode.
 
 ## Configuration compatibility
 

@@ -34,6 +34,11 @@ PACKAGE_BOOT_IMG="${PACKAGE_BOOT_IMG:-true}"
 [ -f "$OUT_DIR/.config" ] || { echo "ERROR: missing final .config" >&2; exit 1; }
 
 BASE_NAME="Zyomi16-marble-${KERNEL_RELEASE}-${LTO_MODE}-r${RUN_NUMBER}"
+INFO_FILE="$ROOT/integration-info.txt"
+BAKASU_INFO="$(sed -n 's/^BakaSU commit: //p' "$INFO_FILE" 2>/dev/null || true)"
+KSU_INFO="$(sed -n 's/^KernelSU version full: //p' "$INFO_FILE" 2>/dev/null || true)"
+SUSFS_INFO="$(sed -n 's/^SUSFS version: //p' "$INFO_FILE" 2>/dev/null || true)"
+HOOK_INFO="$(sed -n 's/^Hook mode: //p' "$INFO_FILE" 2>/dev/null || true)"
 mkdir -p "$ARTIFACT_DIR"
 rm -rf "$WORK_DIR"
 mkdir -p "$WORK_DIR"
@@ -173,6 +178,7 @@ cp "$OUT_DIR/config-report.md" "$ARTIFACT_DIR/config-report-${BASE_NAME}.md"
 [ -f "$OUT_DIR/merge-config.log" ] && cp "$OUT_DIR/merge-config.log" "$ARTIFACT_DIR/merge-config.log"
 [ -f "$OUT_DIR/olddefconfig.log" ] && cp "$OUT_DIR/olddefconfig.log" "$ARTIFACT_DIR/olddefconfig.log"
 [ -f "$ROOT/integration-info.txt" ] && cp "$ROOT/integration-info.txt" "$ARTIFACT_DIR/integration-info.txt"
+[ -f "$OUT_DIR/ksu-config.txt" ] && cp "$OUT_DIR/ksu-config.txt" "$ARTIFACT_DIR/ksu-config.txt"
 
 cat > "$ARTIFACT_DIR/README.txt" <<EOF
 Zyomi16 marble kernel build
@@ -182,6 +188,9 @@ Kernel release : ${KERNEL_RELEASE}
 LTO mode       : ${LTO_MODE}
 Git SHA        : ${GITHUB_SHA}
 Workflow run   : ${RUN_NUMBER}
+KernelSU       : BakaSU ${BAKASU_INFO:-unknown} (${KSU_INFO:-unknown})
+SUSFS          : ${SUSFS_INFO:-unknown}
+Hook mode      : ${HOOK_INFO:-unknown}
 
 Artifacts
 ---------
@@ -205,6 +214,10 @@ config-${BASE_NAME}.txt
 Zyomi16-Tweaks-v1.zip
     Separate KernelSU/Magisk module with service.d scripts and sysctl values.
     It is not part of the kernel image.
+
+integration-info.txt / ksu-config.txt
+    BakaSU commit, KernelSU and SUSFS versions, hook mode and the final
+    CONFIG_KSU* values used by this build.
 
 IMPORTANT
 ---------
