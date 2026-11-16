@@ -1,0 +1,62 @@
+name: Build Zyomi16 marble kernel
+
+# Manual workflow.  The reusable _build-kernel.yml is shared by the config-only
+# preflight, the Full LTO build and the Thin LTO fallback.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Build mode"
+        required: true
+        type: choice
+        default: full
+        options:
+          - full
+          - thin
+          - config-only
+      thin_fallback:
+        description: "Run a Thin LTO build if Full LTO fails or exceeds the build timeout"
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zyomi16-marble-${{ github.ref }}-${{ inputs.mode }}
+  cancel-in-progress: false
+
+jobs:
+  config:
+    name: Config audit (${{ inputs.mode }})
+    uses: ./.github/workflows/_build-kernel.yml
+    with:
+      lto: ${{ inputs.mode == 'thin' && 'thin' || 'full' }}
+      config_only: true
+
+  build:
+    name: Build (${{ inputs.mode }} LTO)
+    needs: config
+    if: ${{ inputs.mode != 'config-only' }}
+    uses: ./.github/workflows/_build-kernel.yml
+    with:
+      lto: ${{ inputs.mode }}
+      config_only: false
+
+  build-thin-fallback:
+    name: Build (Thin LTO fallback)
+    needs:
+      - config
+      - build
+    # always() is required: GitHub skips a job whose needs failed even when
+    # the explicit condition below would be true.
+    if: ${{ always() &&
+            needs.config.result == 'success' &&
+            needs.build.result == 'failure' &&
+            inputs.mode == 'full' &&
+            inputs.thin_fallback }}
+    uses: ./.github/workflows/_build-kernel.yml
+    with:
+      lto: thin
+      config_only: false

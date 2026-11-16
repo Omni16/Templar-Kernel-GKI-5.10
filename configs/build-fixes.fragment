@@ -1,0 +1,9 @@
+# Build fixes for the extracted GSI config.  These are not feature requests:
+# they make the config buildable outside the AOSP build host.
+#
+# The GSI .config points CONFIG_UNUSED_KSYMS_WHITELIST at
+# /mnt/disks/build-disk/src/android/common-android12-5.10-2025-05/out/android12-5.10/common/abi_symbollist.raw,
+# a path that only exists on the AOSP build machine.  Without that list the
+# autoksyms step aborts.  Disabling trimming also keeps exports available to
+# out-of-tree/vendor modules built against this kernel.
+# CONFIG_TRIM_UNUSED_KSYMS is not set

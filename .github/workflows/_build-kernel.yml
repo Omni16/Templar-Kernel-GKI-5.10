@@ -1,0 +1,365 @@
+name: Build kernel (reusable)
+
+# Shared implementation for the config-only preflight, Full LTO build and Thin
+# LTO fallback.  The caller selects the mode; this workflow always derives the
+# .config from configs/base-marble-5.10.236.config plus the Zyomi16 fragment.
+
+on:
+  workflow_call:
+    inputs:
+      lto:
+        description: "LTO mode: full or thin"
+        required: true
+        type: string
+      config_only:
+        description: "Stop after the configuration audit"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    name: ${{ inputs.lto }} LTO
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+
+    env:
+      ARCH: arm64
+      LLVM: 1
+      LLVM_IAS: 1
+      LTO_MODE: ${{ inputs.lto }}
+      CCACHE_MAXSIZE: 4G
+      BUILD_TIMEOUT_SECONDS: 19800
+
+      # Pinned toolchain and inputs.  The base config was produced by this
+      # exact Android Clang (r416183b / 12.0.5), so use it for the kernel.
+      CLANG_VERSION: r416183b
+      CLANG_URL: https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/tags/android-12.0.0_r1/clang-r416183b.tar.gz
+
+      BAKASU_COMMIT: 5d6d1843c8937f5ff2a145dc89a0cf46030ae6f8
+      BAKASU_REPO: https://github.com/Baka-SU/BakaSU.git
+
+      MAGISK_APK_SHA256: f511bd33d3242911d05b0939f910a3133ef2ba0e0ff1e098128f9f3cd0c16610
+      ANYKERNEL3_COMMIT: 41f04bdb4ee30a44e429c2c1131d5e8bb32b15f1
+      ANYKERNEL3_SHA256: 792b37fec7d1221570a4f1deb777a2d2cb8261596b1465a70bd7abfb30e268a2
+
+      KBUILD_BUILD_USER: zyomi16
+      KBUILD_BUILD_HOST: github-actions
+
+    steps:
+      - name: Checkout source snapshot
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Free disk space
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf /usr/share/swift
+          sudo apt-get clean
+          docker image prune -af || true
+          df -h /
+
+      - name: Add 16 GB swap
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo swapoff /mnt/swapfile 2>/dev/null || true
+          sudo rm -f /mnt/swapfile
+          if ! sudo fallocate -l 16G /mnt/swapfile; then
+            sudo dd if=/dev/zero of=/mnt/swapfile bs=1M count=16384 status=none
+          fi
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+          swapon --show
+          free -h
+
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bc bison flex libelf-dev libssl-dev libncurses-dev \
+            build-essential ccache cpio kmod lz4 zstd xz-utils \
+            python3 python3-pip rsync zip unzip erofs-utils \
+            file git curl ca-certificates
+
+      - name: Restore ccache
+        uses: hendrikmuhs/ccache-action@v1.2.25
+        with:
+          key: zyomi16-${{ inputs.lto }}-${{ github.job }}
+          max-size: 4G
+          verbose: 1
+          append-timestamp: true
+
+      - name: Restore AOSP Clang
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/clang-r416183b
+          key: ${{ runner.os }}-clang-${{ env.CLANG_VERSION }}-v2
+
+      - name: Install AOSP Clang
+        shell: bash
+        run: |
+          set -euo pipefail
+          CLANG_DIR="$RUNNER_TEMP/clang-r416183b"
+          if [ ! -x "$CLANG_DIR/bin/clang" ]; then
+            curl -fL --retry 3 --retry-delay 5 -o "$RUNNER_TEMP/clang.tar.gz" "$CLANG_URL"
+            # android.googlesource.com generates archives on demand; the same
+            # tag can produce different compressed bytes on different days.
+            # Log the hash for provenance, then verify the extracted compiler.
+            sha256sum "$RUNNER_TEMP/clang.tar.gz" | tee "$RUNNER_TEMP/clang.tar.gz.sha256"
+            rm -rf "$CLANG_DIR"
+            mkdir -p "$CLANG_DIR"
+            tar -xzf "$RUNNER_TEMP/clang.tar.gz" -C "$CLANG_DIR"
+          fi
+          # The base config was produced by Android Clang r416183b (12.0.5).
+          # Reject a moved tag or a wrong/partial extraction.
+          grep -qx '12.0.5' "$CLANG_DIR/AndroidVersion.txt"
+          grep -qx 'based on r416183b' "$CLANG_DIR/AndroidVersion.txt"
+          "$CLANG_DIR/bin/clang" --version | tee "$RUNNER_TEMP/clang-version.txt"
+          grep -q 'clang version 12\.0\.5' "$RUNNER_TEMP/clang-version.txt"
+          "$CLANG_DIR/bin/ld.lld" --version | tee "$RUNNER_TEMP/lld-version.txt"
+          grep -q 'LLD 12\.0\.5' "$RUNNER_TEMP/lld-version.txt"
+          echo "$CLANG_DIR/bin" >> "$GITHUB_PATH"
+
+      - name: Download device inputs
+        if: ${{ !inputs.config_only }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p device-inputs
+          gh release download device-inputs-v1 \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir device-inputs \
+            --clobber
+          # Large images are stored xz-compressed to keep the release upload
+          # reliable.  Restore the exact original bytes before verification.
+          for name in boot.img vendor_boot.img; do
+            if [ -f "device-inputs/${name}.xz" ]; then
+              xz -dc "device-inputs/${name}.xz" > "device-inputs/${name}"
+            fi
+          done
+          (
+            cd device-inputs
+            sha256sum -c ../configs/device-inputs.sha256
+          )
+          cmp device-inputs/config-5.10.236-gsi-marble \
+              configs/base-marble-5.10.236.config
+          ls -lh device-inputs
+
+      - name: Install magiskboot
+        if: ${{ !inputs.config_only }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tools
+          curl -fL --retry 3 -o tools/Magisk-v27.0.apk \
+            https://github.com/topjohnwu/Magisk/releases/download/v27.0/Magisk-v27.0.apk
+          echo "$MAGISK_APK_SHA256  tools/Magisk-v27.0.apk" | sha256sum -c -
+          unzip -p tools/Magisk-v27.0.apk lib/x86_64/libmagiskboot.so > tools/magiskboot
+          chmod +x tools/magiskboot
+          tools/magiskboot --help >/dev/null 2>&1 || true
+
+      - name: Integrate BakaSU and SUSFS
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x scripts/apply-ksu-susfs.sh scripts/configure-kernel.sh
+          chmod +x scripts/extract-vendor-modules.sh scripts/package.sh
+          chmod +x scripts/check-config.py scripts/compare-modules.py
+          chmod +x tweaks/service.sh tweaks/post-fs-data.sh
+          chmod +x tweaks/service.d/*.sh
+          INFO_FILE="$GITHUB_WORKSPACE/integration-info.txt" \
+            bash scripts/apply-ksu-susfs.sh
+
+      - name: Generate and audit configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT_DIR="$GITHUB_WORKSPACE/out" LTO_MODE="$LTO_MODE" \
+            bash scripts/configure-kernel.sh
+          make -s -C "$GITHUB_WORKSPACE" O="$GITHUB_WORKSPACE/out" \
+            ARCH=arm64 LLVM=1 LLVM_IAS=1 kernelrelease \
+            > "$GITHUB_WORKSPACE/out/kernel-release.txt"
+          cat "$GITHUB_WORKSPACE/out/kernel-release.txt"
+          grep -q '^5\.10\.271-Zyomi16$' "$GITHUB_WORKSPACE/out/kernel-release.txt"
+          cp "$GITHUB_WORKSPACE/out/.config" "$GITHUB_WORKSPACE/out/final.config"
+          echo "::group::Final .config"
+          cat "$GITHUB_WORKSPACE/out/.config"
+          echo "::endgroup::"
+
+      - name: Build Image
+        if: ${{ !inputs.config_only }}
+        shell: bash
+        run: |
+          set -o pipefail
+          OUT_DIR="$GITHUB_WORKSPACE/out"
+          start="$(date +%s)"
+          set +e
+          timeout --signal=TERM --kill-after=2m "$BUILD_TIMEOUT_SECONDS" \
+            make -C "$GITHUB_WORKSPACE" O="$OUT_DIR" ARCH=arm64 LLVM=1 LLVM_IAS=1 \
+              KCFLAGS="-Wno-error" -j"$(nproc)" Image 2>&1 | tee "$OUT_DIR/build.log"
+          rc="${PIPESTATUS[0]}"
+          set -e
+          end="$(date +%s)"
+          printf '%s\n' "$(( (end - start) / 60 )) minutes" | tee "$OUT_DIR/build-time.txt"
+          printf 'make exit code: %s\n' "$rc" | tee "$OUT_DIR/build-result.txt"
+          if [ "$rc" -ne 0 ]; then
+            echo "::error title=Kernel build failed::make exited with $rc"
+          fi
+          exit "$rc"
+
+      - name: Verify build outputs
+        if: ${{ !inputs.config_only }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT_DIR="$GITHUB_WORKSPACE/out"
+          ls -lh "$OUT_DIR/arch/arm64/boot/Image" "$OUT_DIR/vmlinux" \
+                 "$OUT_DIR/vmlinux.symvers" "$OUT_DIR/System.map" \
+                 "$OUT_DIR/build.log"
+          test -s "$OUT_DIR/arch/arm64/boot/Image"
+          test -s "$OUT_DIR/vmlinux.symvers"
+          file "$OUT_DIR/arch/arm64/boot/Image"
+          grep -E '^CONFIG_(LTO_CLANG_FULL|LTO_CLANG_THIN|CFI_CLANG|LOCALVERSION)=' \
+            "$OUT_DIR/.config"
+
+      - name: Extract vendor modules
+        if: ${{ !inputs.config_only }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT_DIR="$GITHUB_WORKSPACE/out"
+          VENDOR_BOOT="$GITHUB_WORKSPACE/device-inputs/vendor_boot.img" \
+          VENDOR_DLKM="$GITHUB_WORKSPACE/device-inputs/vendor_dlkm_a.img" \
+          MAGISKBOOT="$GITHUB_WORKSPACE/tools/magiskboot" \
+          DEST="$OUT_DIR/vendor-modules" \
+          WORK="$OUT_DIR/vendor-extract" \
+            bash scripts/extract-vendor-modules.sh
+
+      - name: Compare vendor module vermagic and CRCs
+        if: ${{ !inputs.config_only }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT_DIR="$GITHUB_WORKSPACE/out"
+          python3 scripts/compare-modules.py \
+            --symvers "$OUT_DIR/vmlinux.symvers" \
+            --vmlinux "$OUT_DIR/vmlinux" \
+            --config "$OUT_DIR/.config" \
+            --release "$OUT_DIR/kernel-release.txt" \
+            --module-root "$OUT_DIR/vendor-modules/vendor_boot-root" \
+            --module-root "$OUT_DIR/vendor-modules/vendor_dlkm-root" \
+            --out-prefix "$OUT_DIR/module-compat" \
+            --max-table 100
+          if grep -q 'Vermagic mismatches: \*\*[1-9]' "$OUT_DIR/module-compat.md"; then
+            echo "::warning title=Vendor modules are incompatible::The stock vendor modules were built for a different GKI vermagic. See module-compat.md; a boot-only flash cannot load them."
+          fi
+
+      - name: Package AnyKernel3, boot.img and reports
+        if: ${{ !inputs.config_only }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT_DIR="$GITHUB_WORKSPACE/out"
+          KERNEL_RELEASE="$(cat "$OUT_DIR/kernel-release.txt")"
+          OUT_DIR="$OUT_DIR" \
+          LTO_MODE="$LTO_MODE" \
+          KERNEL_RELEASE="$KERNEL_RELEASE" \
+          KERNEL_IMAGE="$OUT_DIR/arch/arm64/boot/Image" \
+          BOOT_IMAGE="$GITHUB_WORKSPACE/device-inputs/boot.img" \
+          ARTIFACT_DIR="$GITHUB_WORKSPACE/artifacts" \
+          WORK_DIR="$GITHUB_WORKSPACE/package-work" \
+          MAGISKBOOT="$GITHUB_WORKSPACE/tools/magiskboot" \
+          MAGISK_APK="$GITHUB_WORKSPACE/tools/Magisk-v27.0.apk" \
+          ANYKERNEL3_COMMIT="$ANYKERNEL3_COMMIT" \
+          ANYKERNEL3_SHA256="$ANYKERNEL3_SHA256" \
+          RUN_NUMBER="$GITHUB_RUN_NUMBER" \
+          GITHUB_SHA="$GITHUB_SHA" \
+            bash scripts/package.sh
+
+      - name: Upload config audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: config-${{ inputs.lto }}-${{ github.job }}-r${{ github.run_number }}
+          path: |
+            out/.config
+            out/final.config
+            out/config-report.md
+            out/config-report.txt
+            out/effective-requested.fragment
+            out/effective-build-fixes.fragment
+            out/kernel-release.txt
+            out/merge-config.log
+            out/olddefconfig.log
+            integration-info.txt
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload build artifacts
+        if: ${{ !inputs.config_only && success() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: zyomi16-marble-${{ inputs.lto }}-r${{ github.run_number }}-${{ github.run_attempt }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failure-${{ inputs.lto }}-${{ github.job }}-r${{ github.run_number }}
+          path: |
+            out/build.log
+            out/build-result.txt
+            out/build-time.txt
+            out/.config
+            out/config-report.md
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Write job summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT_DIR="$GITHUB_WORKSPACE/out"
+          {
+            echo "## Zyomi16 marble — ${LTO_MODE} LTO"
+            echo ""
+            echo "- Mode: \`${LTO_MODE}\` (config-only: \`${{ inputs.config_only }}\`)"
+            echo "- Commit: \`$GITHUB_SHA\`"
+            if [ -s "$OUT_DIR/kernel-release.txt" ]; then
+              echo "- Kernel release: \`$(cat "$OUT_DIR/kernel-release.txt")\`"
+            fi
+            if [ -s "$OUT_DIR/build-time.txt" ]; then
+              echo "- Build time: $(cat "$OUT_DIR/build-time.txt")"
+            fi
+            if [ -d "$GITHUB_WORKSPACE/artifacts" ]; then
+              echo "- Artifacts:"
+              find "$GITHUB_WORKSPACE/artifacts" -maxdepth 1 -type f -printf '  - `%f`\n' | sort
+            fi
+            echo ""
+            if [ -s "$OUT_DIR/config-report.md" ]; then
+              cat "$OUT_DIR/config-report.md"
+              echo ""
+            fi
+            if [ -s "$OUT_DIR/module-compat.md" ]; then
+              cat "$OUT_DIR/module-compat.md"
+              echo ""
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

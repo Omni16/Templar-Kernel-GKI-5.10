@@ -1,0 +1,34 @@
+diff --git a/init/Kconfig b/init/Kconfig
+index de73374c85b7..04938ac3c7f3 100644
+--- a/init/Kconfig
++++ b/init/Kconfig
+@@ -465,7 +465,8 @@ config HAVE_ARCH_AUDITSYSCALL
+ 	bool
+ 
+ config AUDITSYSCALL
+-	def_bool y
++	bool "Audit syscall support"
++	default y
+ 	depends on AUDIT && HAVE_ARCH_AUDITSYSCALL
+ 	select FSNOTIFY
+ 
+@@ -1773,7 +1774,7 @@ config KALLSYMS
+ 
+ config KALLSYMS_ALL
+ 	bool "Include all symbols in kallsyms"
+-	depends on DEBUG_KERNEL && KALLSYMS
++	depends on KALLSYMS
+ 	help
+ 	  Normally kallsyms only contains the symbols of functions for nicer
+ 	  OOPS messages and backtraces (i.e., symbols from the text and inittext
+@@ -1992,8 +1993,8 @@ config VM_EVENT_COUNTERS
+ 	  if VM event counters are disabled.
+ 
+ config SLUB_DEBUG
+-	default y
+-	bool "Enable SLUB debugging support" if EXPERT
++	bool "Enable SLUB debugging support"
++	default n
+ 	depends on SLUB && SYSFS
+ 	help
+ 	  SLUB has extensive debug support features. Disabling these can

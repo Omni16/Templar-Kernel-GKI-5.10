@@ -1,0 +1,6 @@
+id=zyomi16_tweaks
+name=Zyomi16 Network & Memory Tweaks
+version=v1.0
+versionCode=1
+author=Omni16
+description=BBR/FQ/CAKE, socket buffers, conntrack and zram defaults for the Zyomi16 marble kernel. Kernel config is not modified by this module.

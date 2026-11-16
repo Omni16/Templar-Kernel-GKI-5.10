@@ -1,0 +1,8 @@
+# Exact input images used by .github/workflows/build-zyomi16-marble.yml.
+# The workflow downloads these files from the device-inputs-v1 release and
+# verifies them with `sha256sum -c` before using them.
+e4df49671a7195b7b2bf1c0a0aaa712625eb385f46d92991ca0fccb1c197d515  boot.img
+1adc50c8d9fbadaf7cf4c75b19b54133aa7bf0c56a0cd0a7e59f274e2a19393e  vbmeta.img
+3b545d9a62d2db8daf7d0dc55f3d56273949085748fea91bf069787e021dd0cd  vendor_boot.img
+f20fc15e2e1048fd0fcf39589239672f7adc6ee849bb07ce47fc995122ecfa7a  vendor_dlkm_a.img
+aa19d5a2ad009afb5a8968e8a880790a4657c659041ac15c89e4b7ce6c0a04b6  config-5.10.236-gsi-marble

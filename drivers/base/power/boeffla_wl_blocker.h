@@ -1,0 +1,51 @@
+/*
+ * Author: andip71, 01.09.2017
+ *
+ * Version 1.2.0
+ *
+ * This software is licensed under the terms of the GNU General Public
+ * License version 2, as published by the Free Software Foundation, and
+ * may be copied, distributed, and modified under those terms.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ */
+
+#define BOEFFLA_WL_BLOCKER_VERSION	"1.2.0"
+
+/*
+ * Default block list. Portable across MTK/QCOM: every entry is either
+ * vendor-namespaced (inert where the SoC differs) or a WLAN/BT background
+ * idle-poll wakelock (connectivity still works; only the high-frequency
+ * firmware poll that keeps the SoC out of deep sleep is suppressed).
+ * No alarmtimer/[timerfd] -- those break RTC alarms and their numbering
+ * is not portable. No input/i2c/spi nodes -- those break wake-on-touch.
+ * No modem keep-alive (mtk_md, mtk_md_wl) -- the 5G modem requires the
+ * link to stay up through idle; blocking it drops the data connection.
+ * Per-device offenders go in the runtime sysfs 'wakelock_blocker' node.
+ *
+ * Q6BIOS_WLAN : QCOM WLAN firmware idle poll (WiFi stays associated)
+ * mtk_wmt_top : MTK Wireless Module Top idle poll (inert on QCOM)
+ * btsdio_wl   : QCOM/MTK BT controller idle poll (BT stays paired)
+ * mgmt_txrx   : WLAN mgmt-frame TX/RX idle poll -- beacon/probe/assoc
+ *               churn; association is kept by the firmware WoW offload, a
+ *               real deauth/wake still fires via the hard-event path.
+ */
+#define LIST_WL_DEFAULT \
+	"RMNET_DFC;DIAG_WS;qcom_rx_wakelock;wlan;wlan_wow_wl;wlan_extscan_wl;" \
+	"wlan_pno_wl;wlan_roam_wl;wlan_ipa;netmgr_wl;NETLINK;" \
+	"a600000.ssusb;998000.qcom,qup_uart;hal_bluetooth_lock;" \
+	"IPA_WS;IPA_CLIENT_APPS_WAN_COAL_CONS;IPA_CLIENT_APPS_WAN_LOW_LAT_CONS;" \
+	"IPA_CLIENT_APPS_LAN_CONS;rmnet_ipa%d;rmnet_ctl;RMNET_SHS;" \
+	"Q6BIOS_WLAN;mtk_wmt_top;btsdio_wl;mgmt_txrx"
+
+#define LENGTH_LIST_WL				1024
+/* Both lists are sysfs-writable, so both get the full capacity. Deriving this
+ * from strlen(LIST_WL_DEFAULT) is not a constant expression and capped any
+ * replacement at the compiled default's length. */
+#define LENGTH_LIST_WL_DEFAULT			LENGTH_LIST_WL
+/* ";default;user;" -- three delimiters plus the terminator. */
+#define LENGTH_LIST_WL_SEARCH			(LENGTH_LIST_WL_DEFAULT + LENGTH_LIST_WL + 4)
