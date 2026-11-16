@@ -1,0 +1,103 @@
+# SPDX-License-Identifier: GPL-2.0
+config ZRAM
+	tristate "Compressed RAM block device support"
+	depends on BLOCK && SYSFS && ZSMALLOC && CRYPTO
+	select CRYPTO_LZ4
+	help
+	  Creates virtual block devices called /dev/zramX (X = 0, 1, ...).
+	  Pages written to these disks are compressed and stored in memory
+	  itself. These disks allow very fast I/O and compression provides
+	  good amounts of memory savings.
+
+	  It has several use cases, for example: /tmp storage, use as swap
+	  disks and maybe many more.
+
+	  See Documentation/admin-guide/blockdev/zram.rst for more information.
+
+config ZRAM_WRITEBACK
+       bool "Write back incompressible or idle page to backing device"
+       depends on ZRAM
+       help
+	 With incompressible page, there is no memory saving to keep it
+	 in memory. Instead, write it out to backing device.
+	 For this feature, admin should set up backing device via
+	 /sys/block/zramX/backing_dev.
+
+	 With /sys/block/zramX/{idle,writeback}, application could ask
+	 idle page's writeback to the backing device to save in memory.
+
+	 See Documentation/admin-guide/blockdev/zram.rst for more information.
+
+config ZRAM_MEMORY_TRACKING
+	bool "Track zRam block status"
+	depends on ZRAM && DEBUG_FS
+	help
+	  With this feature, admin can track the state of allocated blocks
+	  of zRAM. Admin could see the information via
+	  /sys/kernel/debug/zram/zramX/block_state.
+
+	  See Documentation/admin-guide/blockdev/zram.rst for more information.
+
+config ZRAM_MULTI_COMP
+	bool "Enable multiple compression streams"
+	depends on ZRAM
+	help
+	  BACKPORT (mainline v6.2): allow a zram device to be configured with
+	  more than one compression algorithm. The primary algorithm is used on
+	  the write (swap-out) path as before; up to three additional secondary
+	  algorithms can be assigned via /sys/block/zramX/recomp_algorithm and
+	  applied to idle/cold pages with /sys/block/zramX/recompress to trade a
+	  little CPU for a better compression ratio.
+
+	  When disabled, zram behaves exactly as before (single algorithm).
+
+	  See Documentation/admin-guide/blockdev/zram.rst for more information.
+
+config ZRAM_BACKEND_QPACE
+	bool "QPaCE compression support"
+	depends on ZRAM
+	depends on QCOM_PAGE_COMPRESSION_ENGINE = y || \
+		(ZRAM = m && QCOM_PAGE_COMPRESSION_ENGINE = m)
+	help
+	  Enable Qualcomm Page Compression Engine (QPaCE) hardware
+	  acceleration as a zram backend. When selected, zram offloads
+	  synchronous compress and decompress operations to the QPaCE
+	  urgent command path, reducing CPU overhead.
+
+choice
+	prompt "Default zram compressor"
+	default ZRAM_DEF_COMP_QPACE if ZRAM_BACKEND_QPACE
+	default ZRAM_DEF_COMP_LZ4 if CRYPTO_LZ4
+	default ZRAM_DEF_COMP_LZORLE
+	depends on ZRAM
+
+config ZRAM_DEF_COMP_QPACE
+	bool "qpace-lz4"
+	depends on ZRAM_BACKEND_QPACE
+
+config ZRAM_DEF_COMP_LZORLE
+	bool "lzo-rle"
+
+config ZRAM_DEF_COMP_LZ4
+	bool "lz4"
+	depends on CRYPTO_LZ4
+
+config ZRAM_DEF_COMP_LZO
+	bool "lzo"
+	depends on CRYPTO_LZO
+
+config ZRAM_DEF_COMP_ZSTD
+	bool "zstd"
+	depends on CRYPTO_ZSTD
+
+endchoice
+
+config ZRAM_DEF_COMP
+	string
+	default "qpace-lz4" if ZRAM_DEF_COMP_QPACE
+	default "lzo-rle" if ZRAM_DEF_COMP_LZORLE
+	default "lz4" if ZRAM_DEF_COMP_LZ4
+	default "lzo" if ZRAM_DEF_COMP_LZO
+	default "zstd" if ZRAM_DEF_COMP_ZSTD
+	default "lzo-rle"
+
